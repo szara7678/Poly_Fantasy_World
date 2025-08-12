@@ -1,2 +1,8 @@
-html, body, #root { height: 100%; }
-body { margin: 0; background: #000; color: #eee; font-family: Inter, system-ui, Arial, sans-serif; }
+html, body, #root { height: 100%; width: 100%; }
+body {
+  margin: 0;
+  background: #000;
+  color: #eee;
+  font-family: Inter, system-ui, Arial, sans-serif;
+  overflow: hidden; /* 페이지 스크롤 방지 */
+}

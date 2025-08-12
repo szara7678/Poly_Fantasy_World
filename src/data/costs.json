@@ -1,0 +1,13 @@
+{
+  "build": {
+    "Building": { "timeSec": 1.5, "cost": { "Wood": 2 } },
+    "Road": { "timeSec": 1.0, "cost": { "Stone": 1 } }
+  },
+  "roadTypes": {
+    "Dirt": { "timeSec": 0.8, "cost": { } },
+    "Gravel": { "timeSec": 1.2, "cost": { "Stone": 1 } },
+    "Wood": { "timeSec": 1.0, "cost": { "Wood": 1 } },
+    "Stone": { "timeSec": 1.6, "cost": { "Stone": 2 } }
+  }
+}
+

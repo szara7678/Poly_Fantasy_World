@@ -1,0 +1,54 @@
+import type { GameWorld } from '../ecs';
+
+export interface Edict {
+  id: string;
+  domain: string; // e.g., Build / Travel / Gather / Combat
+  tag?: string; // e.g., Road / Building / IronMine
+  mult: number; // 1.1 ~ 2.0 typically
+  ttl: number; // seconds
+  decay: number; // per-second multiplicative decay, e.g., 0.996
+}
+
+const edicts: Edict[] = [];
+const MAX_TOTAL_MULT = 3.0; // plan cap
+
+export function addEdict(e: Omit<Edict, 'id'>): Edict {
+  const ed: Edict = { id: `edict_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, ...e };
+  edicts.push(ed);
+  return ed;
+}
+
+export function removeEdict(id: string): void {
+  const i = edicts.findIndex((e) => e.id === id);
+  if (i >= 0) edicts.splice(i, 1);
+}
+
+export function listEdicts(): ReadonlyArray<Edict> {
+  return edicts;
+}
+
+export function clearEdicts(): void {
+  edicts.length = 0;
+}
+
+export function getMultiplier(domain: string, tag?: string): number {
+  // multiply all that match domain and optionally tag; clamp to MAX_TOTAL_MULT
+  let mult = 1.0;
+  for (const e of edicts) {
+    if (e.domain !== domain) continue;
+    if (e.tag && tag && e.tag !== tag) continue;
+    mult *= e.mult;
+  }
+  return Math.min(mult, MAX_TOTAL_MULT);
+}
+
+export function EdictSystem(_world: GameWorld, dt: number): void {
+  for (const e of edicts) {
+    e.ttl -= dt;
+    // decay toward 1.0 by multiplying with decay each second
+    e.mult = 1 + (e.mult - 1) * Math.pow(e.decay, dt);
+  }
+  for (let i = edicts.length - 1; i >= 0; i--) if (edicts[i].ttl <= 0) edicts.splice(i, 1);
+}
+
+

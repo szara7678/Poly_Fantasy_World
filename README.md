@@ -22,7 +22,7 @@ npm run lint
 ```
 
 ## GH Pages 배포
-- `vite.config.ts`의 `base: '/polyfantasy/'` 설정
+- `vite.config.ts`의 `base: '/Poly_Fantasy_World/'` 설정(리포지토리명과 정확히 일치, 대소문자 포함)
 - GitHub Actions 워크플로 추가 예정
 
 ## 폴더 구조(요약)
@@ -36,11 +36,16 @@ src/
 ```
 
 ## 현재 구현(계획 대응)
-- 성역 시스템 스텁(성역화 버튼으로 메모리 상 성역 추가)
-- FoW 시스템 스텁(향후 텍스처 구현)
+- 성역 시스템 스텁 + 반경 링 렌더 미리보기(`createSanctumRenderSystem`)
+- FoW 간이 오버레이(검은 평면) + 토글 버튼(`createFogOfWarRenderSystem`)
+- 노드 재생 시스템(`NodeRegenSystem`) 루프 연결(초당 비율)
+- 성역: 마나 소모(시전 180) 및 유지비(성역당 −0.2/s), 마나 재생(기본 1/s)
 - 고정틱(60Hz) vs 렌더틱 분리 루프
 - 기본 씬/카메라/조명/그리드
 - 디버그 패널(FPS)
+
+## 규칙(요약)
+- 건설: `Road`는 어디든 가능, 그 외 `Building`은 성역 내부 반경 내에서만 가능 (`BuildRules`)
 
 ## 라이선스
 MIT
