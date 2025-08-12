@@ -27,6 +27,11 @@ export function EdictPanel(): React.JSX.Element {
           </div>
         ))}
       </div>
+      <div style={{ marginTop: 8 }}>
+        <div style={{ fontSize: 12, opacity: 0.9 }}>Gather/Forest, Gather/IronMine 멀티:</div>
+        <button onClick={() => { addEdict({ domain: 'Gather', tag: 'Forest', mult: 1.6, ttl: 45, decay: 0.996 }); force(v => v + 1); }}>채집 전언(숲 ×1.6, 45s)</button>
+        <button onClick={() => { addEdict({ domain: 'Gather', tag: 'IronMine', mult: 1.4, ttl: 45, decay: 0.996 }); force(v => v + 1); }} style={{ marginLeft: 6 }}>채집 전언(철 ×1.4, 45s)</button>
+      </div>
     </div>
   );
 }

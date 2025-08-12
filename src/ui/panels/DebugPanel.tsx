@@ -8,6 +8,7 @@ import { spawnScout, getScoutCount } from '../../systems/ScoutSystem';
 import { doSave, hasSave, clearSave, doLoad } from '../../systems/SaveLoadSystem';
 import { addRoad, getRoads } from '../../systems/RoadNetwork';
 import { spawnProjectile, getLastDamage } from '../../systems/ProjectileSystem';
+import { cycleRoadType, getBuildPreview } from '../../systems/BuildPreviewSystem';
 
 export function DebugPanel(): React.JSX.Element {
   const [fps, setFps] = React.useState(0);
@@ -84,8 +85,11 @@ export function DebugPanel(): React.JSX.Element {
         <span style={{ fontSize: 12, opacity: 0.9 }}>건설 미리보기 모드: </span>
         <button onClick={() => window.dispatchEvent(new CustomEvent('pfw-set-build-mode', { detail: 'Building' }))}>Building</button>
         <button onClick={() => window.dispatchEvent(new CustomEvent('pfw-set-build-mode', { detail: 'Road' }))} style={{ marginLeft: 6 }}>Road</button>
+        <button onClick={() => { cycleRoadType(); }} style={{ marginLeft: 6 }}>도로 유형 순환</button>
         <span style={{ marginLeft: 8, fontSize: 12, opacity: 0.9 }}>(도로 유형: Dirt/Gravel/Wood/Stone - 비용/시간은 costs.json)</span>
         <button onClick={() => window.dispatchEvent(new CustomEvent('pfw-set-build-mode', { detail: 'None' }))} style={{ marginLeft: 6 }}>None</button>
+        <div style={{ fontSize: 12, opacity: 0.8, marginTop: 4 }}>미리보기: {(() => { const s = getBuildPreview(); return s.mode === 'Road' ? `RoadType=${s.roadType}` : s.mode; })()}</div>
+        <div style={{ fontSize: 11, opacity: 0.7 }}>힌트: {(window as any).__pfw_hint ?? ''}</div>
       </div>
       <div style={{ marginTop: 8, fontSize: 12, opacity: 0.85 }}>
         청사진을 배치하면 1.5초 후 완성 메쉬로 바뀝니다(프로토타입).

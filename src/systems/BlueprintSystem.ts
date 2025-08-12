@@ -1,17 +1,19 @@
 import * as THREE from 'three';
 import type { SceneRoot } from '../render/three/SceneRoot';
 import type { BuildType } from './BuildRules';
+import type { RoadType } from './RoadNetwork';
 
 export interface Blueprint {
   id: string;
   type: BuildType;
   position: [number, number, number];
+  roadType?: RoadType;
 }
 
 const blueprints: Blueprint[] = [];
 
-export function addBlueprint(type: BuildType, position: [number, number, number]): Blueprint {
-  const bp: Blueprint = { id: `${type}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}` as const, type, position };
+export function addBlueprint(type: BuildType, position: [number, number, number], roadType?: RoadType): Blueprint {
+  const bp: Blueprint = { id: `${type}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}` as const, type, position, roadType };
   blueprints.push(bp);
   return bp;
 }
@@ -37,9 +39,10 @@ export function createBlueprintRenderSystem(scene: SceneRoot) {
 
   function meshFor(bp: Blueprint): THREE.Object3D {
     if (bp.type === 'Road') {
+      const color = bp.roadType === 'Gravel' ? 0x999999 : bp.roadType === 'Wood' ? 0xb8860b : bp.roadType === 'Stone' ? 0xcccccc : 0xaaaa66;
       const m = new THREE.Mesh(
-        new THREE.BoxGeometry(2, 0.1, 2),
-        new THREE.MeshBasicMaterial({ color: 0xaaaa66, transparent: true, opacity: 0.8 })
+        new THREE.BoxGeometry(2.2, 0.12, 2.2),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85 })
       );
       return m;
     }

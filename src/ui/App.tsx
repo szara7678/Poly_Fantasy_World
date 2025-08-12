@@ -8,7 +8,7 @@ import { SanctumSystem, createSanctumRenderSystem } from '../systems/SanctumSyst
 import { SceneRoot } from '../render/three/SceneRoot';
 import { SanctumPanel } from './panels/SanctumPanel';
 import { DebugPanel } from './panels/DebugPanel';
-import { NodeRegenSystem } from '../systems/NodeRegenSystem';
+import { NodeRegenSystem, createNodeRenderSystem } from '../systems/NodeRegenSystem';
 import { createBuildPreviewSystem } from '../systems/BuildPreviewSystem';
 import { setBuildMode } from '../systems/BuildPreviewSystem';
 import { createBlueprintRenderSystem } from '../systems/BlueprintSystem';
@@ -50,6 +50,7 @@ export function App(): React.JSX.Element {
     loop.addRenderSystem(createBuildPreviewSystem(scene));
     loop.addRenderSystem(createBlueprintRenderSystem(scene));
     loop.addRenderSystem(createScoutRenderSystem(scene));
+    loop.addRenderSystem(createNodeRenderSystem(scene));
     loop.addRenderSystem(createProjectileRenderSystem(scene));
     // UI tick: notify panels to re-render with latest data
     loop.addRenderSystem(() => {

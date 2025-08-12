@@ -3,6 +3,8 @@ import { getBlueprints, removeBlueprint } from './BlueprintSystem';
 import { canConsume, consume } from './Inventory';
 import { tryReserveWorker, releaseWorker } from './Workers';
 import costs from '../data/costs.json' assert { type: 'json' };
+import { getMultiplier } from './EdictSystem';
+import { addRoad } from './RoadNetwork';
 
 interface BuildJob {
   id: string;
@@ -28,16 +30,30 @@ export function BuildSystem(_world: GameWorld, dt: number): void {
       const bp = getBlueprints().find((b) => b.id === id);
       if (!bp) { releaseWorker(); delete jobs[id]; continue; }
       const cfg = (costs as any).build[bp.type] ?? { cost: {} };
+      // If road, merge roadTypes override (time/cost by subtype)
+      if (bp.type === 'Road' && bp && bp.roadType) {
+        const rt = (costs as any).roadTypes?.[bp.roadType];
+        if (rt) Object.assign(cfg, rt);
+      }
       const entries = Object.entries(cfg.cost as Record<string, number>);
       if (!entries.every(([id, q]) => canConsume(id as any, q))) { releaseWorker(); continue; }
       for (const [id, q] of entries) consume(id as any, q);
       job.hasWorker = true;
     }
-    job.remaining -= dt;
+    // Apply edict multiplier: Build/(Road|Building) speeds up construction
+    const bp = getBlueprints().find((b) => b.id === id);
+    const tag = bp?.type;
+    const mult = getMultiplier('Build', tag);
+    // If road subtype has its own time, initialize job at creation already did; here only multiplier
+    job.remaining -= dt * Math.max(0.1, mult); // guard against 0
     if (job.remaining <= 0) {
-      // For prototype: simply remove blueprint and place a solid cube
-      // Real implementation would spend resources, queue workers, etc.
+      // On completion: remove blueprint and materialize effects
+      const done = bp; // capture before removal
       removeBlueprint(id);
+      // If road, place a road tile into the world for speed factor
+      if (done && done.type === 'Road') {
+        addRoad(done.position, done.roadType);
+      }
       if (job.hasWorker) releaseWorker();
       delete jobs[id];
     }

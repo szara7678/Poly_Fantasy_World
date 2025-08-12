@@ -3,12 +3,15 @@ import type { SceneRoot } from '../render/three/SceneRoot';
 import { canBuild, explainBuildRule, type BuildType } from './BuildRules';
 // costs.json is consumed by BuildSystem; preview does not need it directly
 import { addBlueprint } from './BlueprintSystem';
+import type { RoadType } from './RoadNetwork';
+import costs from '../data/costs.json' assert { type: 'json' };
 
 export interface BuildPreviewState {
   mode: BuildType | 'None';
   hoverPos: [number, number, number] | null;
   isValid: boolean;
   lastExplain: string;
+  roadType: RoadType;
 }
 
 const state: BuildPreviewState = {
@@ -16,11 +19,18 @@ const state: BuildPreviewState = {
   hoverPos: null,
   isValid: false,
   lastExplain: '',
+  roadType: 'Dirt',
 };
 
 export function setBuildMode(mode: BuildType | 'None'): void {
   state.mode = mode;
 }
+export function cycleRoadType(): void {
+  const order: RoadType[] = ['Dirt', 'Gravel', 'Wood', 'Stone'];
+  const idx = order.indexOf(state.roadType);
+  state.roadType = order[(idx + 1) % order.length];
+}
+
 
 export function getBuildPreview(): BuildPreviewState {
   return state;
@@ -70,14 +80,22 @@ export function createBuildPreviewSystem(scene: SceneRoot): (w: unknown, dt: num
 
   function onClick(): void {
     if (!state.hoverPos || state.mode === 'None' || !state.isValid) return;
-    addBlueprint(state.mode as BuildType, state.hoverPos);
+    // pass chosen road type for Road blueprints
+    addBlueprint(state.mode as BuildType, state.hoverPos, state.mode === 'Road' ? state.roadType : undefined);
   }
 
   element.addEventListener('pointermove', updateHover);
   element.addEventListener('click', onClick);
 
   return function BuildPreviewRenderSystem() {
-    // nothing per-frame; preview updated by pointer events
+    // show quick hint about road type & cost
+    if (state.mode === 'Road') {
+      const cfg = (costs as any).roadTypes?.[state.roadType] ?? { timeSec: 1.0, cost: {} };
+      const costText = Object.entries(cfg.cost ?? {}).map(([k, v]) => `${k}:${v}`).join(', ') || '무료';
+      (window as any).__pfw_hint = `Road: ${state.roadType} (t=${cfg.timeSec ?? 1.0}s, cost: ${costText})`;
+    } else {
+      (window as any).__pfw_hint = '';
+    }
   };
 }
 
