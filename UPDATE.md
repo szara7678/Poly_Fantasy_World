@@ -9,4 +9,5 @@
 - UI: `App`, `SanctumPanel`, `DebugPanel`
 - 스타일 단순화: 풀스크린 레이아웃
 - 테스트 셋업: `test/setup.ts`
+- GitHub Pages 배포: `.github/workflows/gh-pages.yml`를 `gh-pages` 브랜치 푸시 방식으로 구성 (`peaceiris/actions-gh-pages@v3` 사용)
 
