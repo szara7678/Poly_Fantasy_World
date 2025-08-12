@@ -1,0 +1,4 @@
+#react 프로젝트 무시 파일
+/node_modules
+/dist
+/build
