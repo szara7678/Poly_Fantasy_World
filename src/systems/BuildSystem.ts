@@ -59,8 +59,13 @@ export function BuildSystem(_world: GameWorld, dt: number): void {
         if (rt) Object.assign(cfg, rt);
       }
       const entries = Object.entries(cfg.cost as Record<string, number>);
-      if (!entries.every(([id, q]) => canConsume(id as any, q))) { releaseWorker(); continue; }
-      for (const [id, q] of entries) consume(id as any, q);
+      // 비용 처리 정책:
+      // - Building: 청사진 생성 시 선결제(일반 흐름). 세이브 복원 청사진은 (bp1 as any).restored=true로 표시되어 있으며 이때만 소비.
+      // - Road: 여기에서 소비.
+      if (bp1.type === 'Road' || (bp1.type === 'Building' && (bp1 as any).restored)) {
+        if (!entries.every(([id, q]) => canConsume(id as any, q))) { releaseWorker(); continue; }
+        for (const [id, q] of entries) consume(id as any, q);
+      }
       job.hasWorker = true;
     }
     // Apply edict multiplier: Build/(Road|Building) speeds up construction

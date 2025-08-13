@@ -6,6 +6,8 @@ interface ResearchState {
   roadSpeedMult: number; // multiplicative, starts at 1.0
   sanctumRadiusMult: number; // multiplicative, starts at 1.0
   sanctumUpkeepMult: number; // multiplicative, starts at 1.0
+  marketFee: number; // transaction fee rate, starts at 0.05 (5%)
+  maxRoadSlopeDeg: number; // allowable road slope in degrees (for helper/planner), default 30
 }
 
 const rs: ResearchState = {
@@ -13,6 +15,8 @@ const rs: ResearchState = {
   roadSpeedMult: 1.0,
   sanctumRadiusMult: 1.0,
   sanctumUpkeepMult: 1.0,
+  marketFee: 0.05,
+  maxRoadSlopeDeg: 30,
 };
 
 export function getMaxSanctums(): number {
@@ -32,7 +36,15 @@ export function getSanctumUpkeepMult(): number {
   return rs.sanctumUpkeepMult;
 }
 
-export type UpgradeId = 'MaxSanctum+1 (I)' | 'MaxSanctum+1 (II)' | 'Roads+10%' | 'SanctumRadius+10%' | 'SanctumUpkeep-10%' | 'Workers+1';
+export function getMarketFee(): number {
+  return rs.marketFee;
+}
+
+export function getRoadSlopeAllowance(): number {
+  return rs.maxRoadSlopeDeg;
+}
+
+export type UpgradeId = 'MaxSanctum+1 (I)' | 'MaxSanctum+1 (II)' | 'Roads+10%' | 'SanctumRadius+10%' | 'SanctumUpkeep-10%' | 'Workers+1' | 'MarketFee-2%' | 'RoadSlope+5°';
 
 export interface UpgradeDef {
   id: UpgradeId;
@@ -48,6 +60,8 @@ const upgrades: UpgradeDef[] = [
   { id: 'SanctumUpkeep-10%', costRP: 25, apply: () => { rs.sanctumUpkeepMult *= 0.9; } },
   // Workers+1는 패널에서 Workers API 사용
   { id: 'Workers+1', costRP: 10, apply: () => { /* handled in panel via Workers API; keep placeholder for UI listing */ } },
+  { id: 'MarketFee-2%', costRP: 20, apply: () => { rs.marketFee = Math.max(0, 0.03); } },
+  { id: 'RoadSlope+5°', costRP: 20, apply: () => { rs.maxRoadSlopeDeg = Math.min(60, rs.maxRoadSlopeDeg + 5); } },
 ];
 
 export function listUpgrades(): ReadonlyArray<UpgradeDef> { return upgrades; }

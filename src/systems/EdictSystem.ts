@@ -32,14 +32,16 @@ export function clearEdicts(): void {
 }
 
 export function getMultiplier(domain: string, tag?: string): number {
-  // multiply all that match domain and optionally tag; clamp to MAX_TOTAL_MULT
-  let mult = 1.0;
+  // multiply all that match domain and optionally tag
+  // 태그가 지정되면 (정확히 일치하는 태그 ×) AND (태그 없는 일반 도메인 전언 ×) 모두 곱한다.
+  let multTagged = 1.0;
+  let multGlobal = 1.0;
   for (const e of edicts) {
     if (e.domain !== domain) continue;
-    if (e.tag && tag && e.tag !== tag) continue;
-    mult *= e.mult;
+    if (!e.tag) { multGlobal *= e.mult; continue; }
+    if (tag && e.tag === tag) multTagged *= e.mult;
   }
-  return Math.min(mult, MAX_TOTAL_MULT);
+  return Math.min(multTagged * multGlobal, MAX_TOTAL_MULT);
 }
 
 export function EdictSystem(_world: GameWorld, dt: number): void {

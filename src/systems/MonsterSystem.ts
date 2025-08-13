@@ -144,7 +144,18 @@ export function MonsterSystem(_world: GameWorld, dt: number): void {
     }
     if (desired.lengthSq() > 1e-4) desired.normalize();
     m.vel.copy(desired.multiplyScalar(m.speed));
-    m.pos.addScaledVector(m.vel, dt);
+    // 이동 시 성역 경계 내부 진입 금지: 경계에 닿으면 바깥으로 밀어냄
+    const proposed = m.pos.clone().addScaledVector(m.vel, dt);
+    for (const s of sanctums) {
+      const d = proposed.distanceTo(new THREE.Vector3(s.center[0], 0, s.center[2]));
+      if (d < s.radius) {
+        const dir = proposed.clone().sub(new THREE.Vector3(s.center[0], 0, s.center[2]));
+        const u = dir.length() > 1e-4 ? dir.normalize() : new THREE.Vector3(1, 0, 0);
+        proposed.copy(new THREE.Vector3(s.center[0], 0, s.center[2]).add(u.multiplyScalar(s.radius + 0.01)));
+        break;
+      }
+    }
+    m.pos.copy(proposed);
     // 공격 로직: 범위 내 시민이 있으면 공격 (거리가 충분히 가까울수록 쿨다운 단축)
     if (m.cooldown <= 0) {
       const hit = (globalThis as any).__pfw_damageCitizen?.(m.pos.x, m.pos.z, m.atk, m.range) ?? false;
@@ -259,6 +270,13 @@ export function createMonsterRenderSystem(scene: SceneRoot) {
       let mesh = meshes[m.id];
       if (!mesh) { mesh = makeMonster(m.kind); meshes[m.id] = mesh; group.add(mesh); }
       mesh.position.set(m.pos.x, 0.6, m.pos.z);
+      // FoW: 미탐색 지역에서는 몬스터 숨김
+      try {
+        const on = (window as any).__pfw_is_fog_enabled as boolean | undefined;
+        const visFn = (window as any).require?.('../systems/FogOfWarSystem')?.isWorldVisible as ((x:number,z:number)=>boolean) | undefined;
+        const visible = !on || (visFn ? visFn(m.pos.x, m.pos.z) : true);
+        (mesh as any).visible = visible;
+      } catch {}
       // 이동 방향으로 회전
       if (m.vel.lengthSq() > 1e-4) {
         const yaw = Math.atan2(m.vel.x, m.vel.z);

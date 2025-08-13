@@ -1,5 +1,6 @@
 import React from 'react';
 import { addEdict, listEdicts, removeEdict, getMultiplierDetail, getMaxTotalMult } from '../../systems/EdictSystem';
+import { setEdictHeatmapRadius, setEdictHeatmapStrength, setEdictHeatmapVisible } from '../../systems/EdictHeatmapSystem';
 
 export function EdictPanel(): React.JSX.Element {
   const [, force] = React.useState(0);
@@ -60,6 +61,17 @@ export function EdictPanel(): React.JSX.Element {
             force(v => v + 1);
           }}>추가</button>
         </div>
+        <details style={{ marginTop: 8 }}>
+          <summary style={{ cursor: 'pointer' }}>히트맵 설정</summary>
+          <div style={{ marginTop: 6, display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 6, alignItems: 'center' }}>
+            <div style={{ fontSize: 12 }}>표시</div>
+            <input type="checkbox" defaultChecked onChange={(e) => setEdictHeatmapVisible((e.target as HTMLInputElement).checked)} />
+            <div style={{ fontSize: 12 }}>반경</div>
+            <input type="range" min={10} max={120} step={5} defaultValue={30} onChange={(e) => setEdictHeatmapRadius(parseFloat((e.target as HTMLInputElement).value))} />
+            <div style={{ fontSize: 12 }}>강도</div>
+            <input type="range" min={0} max={1} step={0.05} defaultValue={1} onChange={(e) => setEdictHeatmapStrength(parseFloat((e.target as HTMLInputElement).value))} />
+          </div>
+        </details>
       </div>
     </div>
   );

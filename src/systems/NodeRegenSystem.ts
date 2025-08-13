@@ -13,6 +13,8 @@ export interface ResourceNode {
 const nodes: ResourceNode[] = [
   { nodeId: 'forest_01', type: 'Forest', capMax: 1000, capNow: 800, regenPerDay: 2, position: [60, 0, 40], slots: { soft: 4, hard: 6 } },
   { nodeId: 'iron_01', type: 'IronMine', capMax: 1000, capNow: 600, regenPerDay: 1, position: [-70, 0, 20], slots: { soft: 3, hard: 5 } },
+  { nodeId: 'herb_01', type: 'HerbPatch', capMax: 300, capNow: 240, regenPerDay: 3, position: [20, 0, -40], slots: { soft: 2, hard: 3 } },
+  { nodeId: 'mana_01', type: 'ManaSpring', capMax: 200, capNow: 120, regenPerDay: 0.5, position: [-30, 0, -50], slots: { soft: 1, hard: 2 } },
 ];
 
 export function getNodes(): ResourceNode[] {
@@ -152,6 +154,14 @@ export function createNodeRenderSystem(scene: SceneRoot) {
         meshes[n.nodeId] = m;
         group.add(m);
       }
+      // FoW: 노드는 Visible 레이어에서만 보이도록 간단히 alpha by global flag
+      let visible = true;
+      try {
+        const on = (window as any).__pfw_is_fog_enabled as boolean | undefined;
+        const visFn = (window as any).require?.('../systems/FogOfWarSystem')?.isWorldVisible as ((x:number,z:number)=>boolean) | undefined;
+        visible = !on || (visFn ? visFn(n.position[0], n.position[2]) : true);
+        (m as any).visible = visible;
+      } catch {}
       // stick to biome height slight offset
       const h = getHeightAt(n.position[0], n.position[2]);
       const y = (h - 0.5) * 1.2; // subtle relief
@@ -169,16 +179,16 @@ export function createNodeRenderSystem(scene: SceneRoot) {
         group.add(bar);
       }
       bar.position.set(n.position[0], 2.0 + y, n.position[2]);
-      const soft = n.slots?.soft ?? 4;
-      const hard = n.slots?.hard ?? 6;
+      const softBar = n.slots?.soft ?? 4;
+      const hardBar = n.slots?.hard ?? 6;
       // 외부 JobChunkSystem 모듈이 있으므로, 예약 수치를 표시하기 위해 글로벌 접근(간단 표기)
       const chList = (globalThis as any).__pfw_jobchunks as any[] | undefined;
       const ch = chList?.find((c) => c.nodeId === n.nodeId);
       const res = ch ? ch.reserved : 0;
-      const frac = Math.min(1, (res / hard) || 0);
+      const frac = Math.min(1, (res / hardBar) || 0);
       bar.scale.set(Math.max(0.05, frac), 1, 1);
       const mat = bar.material as THREE.MeshBasicMaterial;
-      mat.color.set(res <= soft ? 0x44c0ff : 0xff8844);
+      mat.color.set(res <= softBar ? 0x44c0ff : 0xff8844);
 
       // 정보 텍스트: 생산량/슬롯 표시
       let spr = infoTexts[n.nodeId];
@@ -188,9 +198,22 @@ export function createNodeRenderSystem(scene: SceneRoot) {
         group.add(spr);
       }
       spr.position.set(n.position[0], 2.6 + y, n.position[2]);
+      try { (spr.material as THREE.SpriteMaterial).opacity = visible ? 1.0 : 0.0; } catch {}
+      // opacity already set above with visibility check
       const line1 = `${n.type}  cap ${Math.floor(n.capNow)}/${n.capMax}`;
       const line2 = `regen ${n.regenPerDay}/day`;
-      const txt = `${line1}\n${line2}`;
+      // effCurve marginal: eff(n+1)-eff(n) @ reserved
+      const reservedNow = ((globalThis as any).__pfw_jobchunks as any[] | undefined)?.find((c: any) => c.nodeId === n.nodeId)?.reserved ?? 0;
+      function effCurve(softSlots: number, hardSlots: number, k: number): number {
+        const s = Math.max(0, softSlots); const h = Math.max(s, hardSlots);
+        const clampEff = (x: number) => x <= s ? x : (x <= h ? s + 0.6 * (x - s) : s + 0.6 * (h - s));
+        return Math.max(0, clampEff(k + 1) - clampEff(k));
+      }
+      const softSlots = n.slots?.soft ?? 4;
+      const hardSlots = n.slots?.hard ?? 6;
+      const marg = effCurve(softSlots, hardSlots, reservedNow);
+      const line3 = `slots ${reservedNow}/${softSlots}/${hardSlots}  dEff+${marg.toFixed(2)}`;
+      const txt = `${line1}\n${line2}\n${line3}`;
       updateTextSprite(spr, txt);
     }
   };

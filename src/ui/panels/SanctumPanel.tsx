@@ -1,7 +1,8 @@
 import React from 'react';
 import { getSanctums, getCooldownRemaining, getCastingRemaining, canStartExpand, expandSanctum } from '../../systems/SanctumSystem';
+import { getSanctumUpkeepMult } from '../../systems/ResearchSystem';
 import { getActiveWorld } from '../../ecs';
-import { isVisible, setDebugVisible } from '../../systems/FogOfWarSystem';
+import { isFogEnabled, setFogEnabled } from '../../systems/FogOfWarSystem';
 
 export function SanctumPanel(): React.JSX.Element {
   const [, setCount] = React.useState(0);
@@ -16,7 +17,7 @@ export function SanctumPanel(): React.JSX.Element {
     setCount((c) => c + 1);
   };
   const onToggleFow = (): void => {
-    setDebugVisible(!isVisible());
+    setFogEnabled(!isFogEnabled());
     setCount((c) => c + 1);
   };
 
@@ -29,6 +30,17 @@ export function SanctumPanel(): React.JSX.Element {
         <div style={{ fontSize: 12, opacity: 0.9 }}>
           {getCastingRemaining() > 0 ? `시전 중: ${getCastingRemaining().toFixed(1)}s` : getCooldownRemaining() > 0 ? `쿨타임: ${getCooldownRemaining().toFixed(1)}s` : '준비 완료'}
         </div>
+        {(() => {
+          const n = getSanctums().length;
+          const mult = getSanctumUpkeepMult();
+          const per = 0.2 * mult;
+          const total = per * n;
+          return (
+            <div style={{ fontSize: 12, opacity: 0.9, marginTop: 4 }}>
+              유지비: {n} × 0.2 × {mult.toFixed(2)} = {total.toFixed(2)} /s
+            </div>
+          );
+        })()}
       </div>
       <div>성역 수: {getSanctums().length}</div>
       <div style={{ marginTop: 8 }}>
@@ -43,7 +55,7 @@ export function SanctumPanel(): React.JSX.Element {
       </div>
       <div style={{ marginTop: 8 }}>
         <button onClick={onToggleFow}>FoW 토글</button>
-        <span style={{ marginLeft: 8 }}>FoW: {isVisible() ? 'OFF(전체 보임)' : 'ON'}</span>
+        <span style={{ marginLeft: 8 }}>FoW: {isFogEnabled() ? 'ON' : 'OFF(전체 보임)'}</span>
       </div>
     </div>
   );

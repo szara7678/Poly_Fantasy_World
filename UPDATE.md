@@ -23,6 +23,13 @@
 - Perf(Build): `BuildSystem`에서 같은 프레임 내 `getBlueprints().find` 반복 호출을 블루프린트 맵 캐시로 대체.
 - Perf(Build): 프레임 종료 시 `__pfw_near_builders`를 초기화하여 전역 배열 누수/누적 방지.
  - Logs: 카테고리별 최대 100개 보관, 초과 시 오래된 항목 자동 제거. 로그 패널에서 전체/탭별 보기 선택과 탭별 표시 제한치 조정 가능.
+ - Rule(Job slots): 작업 청크 효율 곡선 적용(effCurve) — soft까지 선형, 초과분 40% 감가, hard 초과 시 증가 없음.
+ - Monster/Sanctum: 몬스터가 성역 경계 내부로 진입하지 않도록 이동 클램프.
+ - Docs: README 규칙 정정(도로=성역 외부만), 몬스터의 경계 진입 금지 명시.
+ - Market/Research: 시장 수수료 연구 업그레이드 추가(기본 5% → 연구로 3%), 패널/계산 반영.
+ - SanctumPanel: 성역 유지비 총합(연구 멀티 포함) UI 표기 추가.
+ - RoadHelper: 추천 경로에 타일 수 기반 비용/시간 추정 표시. 경사 허용은 연구(RoadSlope+5°)로 확장.
+ - Citizen: 이동 속도에 경로 평균 도로 계수 반영.
 ## 2025-08-12
 
 - Vite + React + TS 템플릿으로 전환, 기본 의존성 설치

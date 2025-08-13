@@ -5,6 +5,18 @@ import { getNodes } from './NodeRegenSystem';
 import { getDomainTagMultiplier } from './EdictSystem';
 
 // 간단 전언 히트맵: Gather 도메인의 멀티값을 노드 중심으로 붉게 시각화
+let HEATMAP_RADIUS_M = 30; // default radius in meters
+let HEATMAP_STRENGTH = 1.0; // 0..1 multiplier
+let HEATMAP_VISIBLE = true;
+
+export function setEdictHeatmapRadius(meters: number): void {
+  HEATMAP_RADIUS_M = Math.max(5, Math.min(120, meters));
+}
+export function setEdictHeatmapStrength(mult: number): void {
+  HEATMAP_STRENGTH = Math.max(0, Math.min(1.0, mult));
+}
+export function setEdictHeatmapVisible(v: boolean): void { HEATMAP_VISIBLE = !!v; }
+
 export function createEdictHeatmapRenderSystem(scene: SceneRoot) {
   const WORLD_SIZE = 400; // FoW와 동일 커버리지
   const WIDTH = 512;
@@ -49,6 +61,9 @@ export function createEdictHeatmapRenderSystem(scene: SceneRoot) {
   }
 
   return function EdictHeatmapRender(_world: GameWorld, _dt: number): void {
+    // Toggle visibility
+    plane.visible = HEATMAP_VISIBLE;
+    if (!HEATMAP_VISIBLE) return;
     // Clear to fully transparent alphaMap (white = fully transparent for alphaMap)
     ctx.clearRect(0, 0, WIDTH, HEIGHT);
 
@@ -56,12 +71,12 @@ export function createEdictHeatmapRenderSystem(scene: SceneRoot) {
     const nodes = getNodes();
     for (const n of nodes) {
       const mult = getDomainTagMultiplier('Gather', n.type);
-      const strength = Math.max(0, mult - 1) / 2; // 1.0→0, 3.0→1.0
+      const strength = (Math.max(0, mult - 1) / 2) * HEATMAP_STRENGTH; // 1.0→0, 3.0→1.0, scaled
       if (strength <= 0) continue;
       const { u, v } = worldToUV(n.position[0], n.position[2]);
       const px = Math.floor(u * WIDTH);
       const py = Math.floor((1 - v) * HEIGHT);
-      const pr = Math.ceil((30 / WORLD_SIZE) * WIDTH); // 30m 반경
+      const pr = Math.ceil(((HEATMAP_RADIUS_M) / WORLD_SIZE) * WIDTH);
       drawRadial(px, py, Math.max(4, pr), strength);
     }
 

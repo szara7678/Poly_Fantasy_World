@@ -5,7 +5,7 @@ import { canBuild, explainBuildRule, type BuildType } from './BuildRules';
 import { addBlueprint } from './BlueprintSystem';
 import type { RoadType } from './RoadNetwork';
 import costs from '../data/costs.json' with { type: 'json' };
-import { getSanctums, isInsideAnySanctumXZ } from './SanctumSystem';
+// import { getSanctums } from './SanctumSystem';
 
 export interface BuildPreviewState {
   mode: BuildType | 'None';
@@ -72,26 +72,7 @@ export function createBuildPreviewSystem(scene: SceneRoot): (w: unknown, dt: num
       return;
     }
     const type = state.mode as BuildType;
-    // 도로: 성역 내부라면 성역 경계 바깥으로 스냅
-    if (type === 'Road' && isInsideAnySanctumXZ(pos)) {
-      const sanctums = getSanctums();
-      let best: { c: [number, number, number]; r: number; d: number } | null = null;
-      for (const s of sanctums) {
-        const dx = pos[0] - s.center[0];
-        const dz = pos[2] - s.center[2];
-        const d = Math.hypot(dx, dz);
-        if (d < s.radius && (!best || d < best.d)) best = { c: s.center, r: s.radius, d } as any;
-      }
-      if (best) {
-        const dx = pos[0] - best.c[0];
-        const dz = pos[2] - best.c[2];
-        const len = Math.max(1e-3, Math.hypot(dx, dz));
-        const ux = dx / len, uz = dz / len;
-        const eps = 0.6; // 경계 바깥 여유
-        pos = [best.c[0] + ux * (best.r + eps), 0, best.c[2] + uz * (best.r + eps)];
-        state.lastExplain = '성역 내부 → 경계 밖으로 스냅됨';
-      }
-    }
+    // 도로: 성역 내부/외부 모두 허용. 스냅 제거.
     state.isValid = canBuild({ position: pos, type });
     // 설명: 위에서 스냅한 경우 유지, 아니면 규칙 설명
     if (!state.lastExplain) state.lastExplain = explainBuildRule({ position: pos, type });

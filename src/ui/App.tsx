@@ -13,7 +13,7 @@ import { createBuildPreviewSystem } from '../systems/BuildPreviewSystem';
 import { setBuildMode } from '../systems/BuildPreviewSystem';
 import { createBlueprintRenderSystem } from '../systems/BlueprintSystem';
 import { BuildSystem } from '../systems/BuildSystem';
-import { ScoutSystem, createScoutRenderSystem } from '../systems/ScoutSystem';
+// Scout removed per design: citizens reveal FoW
 import { EdictSystem } from '../systems/EdictSystem';
 import { EdictPanel } from './panels/EdictPanel';
 import { MarketSystem } from '../systems/MarketSystem';
@@ -31,6 +31,8 @@ import { ProductionSystem } from '../systems/ProductionSystem';
 import { createBuildingsRenderSystem } from '../systems/BuildingsRender';
 import { EntityInspector } from './panels/EntityInspector';
 import { ResearchSystem } from '../systems/ResearchSystem';
+import { SaintSystem, createSaintRenderSystem } from '../systems/SaintSystem';
+import { SanctumStatsPanel } from './panels/SanctumStatsPanel';
 import { createEdictHeatmapRenderSystem } from '../systems/EdictHeatmapSystem';
 import { createDemolishSystem } from '../systems/DemolishSystem';
 import { AutoRoadPlannerSystem } from '../systems/AutoRoadPlannerSystem';
@@ -60,10 +62,11 @@ export function App(): React.JSX.Element {
     loop.addFixedSystem(SanctumSystem);
     loop.addFixedSystem(NodeRegenSystem);
     loop.addFixedSystem(BuildSystem);
-    loop.addFixedSystem(ScoutSystem);
+    // loop.addFixedSystem(ScoutSystem);
     loop.addFixedSystem(CitizenSystem);
     loop.addFixedSystem(ProductionSystem);
     loop.addFixedSystem(ResearchSystem);
+    loop.addFixedSystem(SaintSystem);
     loop.addFixedSystem(JobChunkSystem);
     loop.addFixedSystem(EdictSystem);
     loop.addFixedSystem(ProjectileSystem);
@@ -75,10 +78,11 @@ export function App(): React.JSX.Element {
     loop.addRenderSystem((_w, _dt) => scene.render());
     loop.addRenderSystem(createFogOfWarRenderSystem(scene));
     loop.addRenderSystem(FogOfWarSystem);
+    loop.addRenderSystem((_w,_dt)=>{ try { (window as any).__pfw_is_fog_enabled = ((require('../systems/FogOfWarSystem') as any).isFogEnabled?.() ?? true); } catch {} });
     loop.addRenderSystem(createEdictHeatmapRenderSystem(scene));
     loop.addRenderSystem(createBuildPreviewSystem(scene));
     loop.addRenderSystem(createBlueprintRenderSystem(scene));
-    loop.addRenderSystem(createScoutRenderSystem(scene));
+    // loop.addRenderSystem(createScoutRenderSystem(scene));
     loop.addRenderSystem(createNodeRenderSystem(scene));
     loop.addRenderSystem(createRoadRenderSystem(scene));
     loop.addRenderSystem(createRoadPreviewRenderSystem(scene));
@@ -86,6 +90,7 @@ export function App(): React.JSX.Element {
     loop.addRenderSystem(createCitizenRenderSystem(scene));
     loop.addRenderSystem(createBuildingsRenderSystem(scene));
     loop.addRenderSystem(createTargetRenderSystem(scene));
+    loop.addRenderSystem(createSaintRenderSystem(scene));
     loop.addRenderSystem(createDemolishSystem(scene));
     loop.addRenderSystem(createMonsterRenderSystem(scene));
     // UI tick: notify panels to re-render with latest data
@@ -166,6 +171,7 @@ function Tabs(): React.JSX.Element {
         {tab === 'Road' && <RoadHelper />}
         {tab === 'Debug' && <DebugPanel />}
         {tab === 'Logs' && <LogsPanel />}
+        {null}
       </div>
     </div>
   );

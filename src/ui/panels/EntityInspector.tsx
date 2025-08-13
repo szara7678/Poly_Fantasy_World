@@ -2,17 +2,17 @@
 // @ts-nocheck
 import React from 'react';
 import * as THREE from 'three';
-import { getBuildings } from '../../systems/Buildings';
+import { getBuildings, setBuildingActive } from '../../systems/Buildings';
 import { getCitizens } from '../../systems/CitizenSystem';
 
 // 전역 클릭 이벤트를 통해 최근 클릭된 엔티티를 추적하여 모달로 표시
 export function EntityInspector(): React.JSX.Element {
   const [open, setOpen] = React.useState(false);
-  const [data, setData] = React.useState<{ type: 'Citizen' | 'Building'; id: string } | null>(null);
+  const [data, setData] = React.useState<{ type: 'Citizen' | 'Building'; id: string; snapshot?: any } | null>(null);
 
   React.useEffect(() => {
     const onOpen = (e: Event) => {
-      const ce = e as CustomEvent<{ type: 'Citizen' | 'Building'; id: string }>; 
+      const ce = e as CustomEvent<{ type: 'Citizen' | 'Building'; id: string; snapshot?: any }>;
       if (ce?.detail?.id) {
         setData(ce.detail);
         setOpen(true);
@@ -64,21 +64,39 @@ export function EntityInspector(): React.JSX.Element {
           )}
         </div>
       );
+    } else {
+      content = (<div>시민 데이터를 찾을 수 없습니다. (역할 변경/제거되었을 수 있습니다)</div>);
     }
   } else if (data.type === 'Building') {
     const b = getBuildings().find(x => x.id === data.id);
     if (b) {
       // 근접 근로자 수, 인접 보너스 등 간단 표시
-      const nearWorkers = (globalThis as any).__pfw_near_producers?.filter?.((id: string) => !!id)?.length ?? 0;
+      const nearWorkers = ((globalThis as any).__pfw_near_producers_counts?.[b.id] ?? 0) as number;
+      const level = (b as any).level ?? 1;
+      function dispatch(kind: 'upgrade' | 'downgrade') {
+        try { window.dispatchEvent(new CustomEvent('pfw-building-action', { detail: { id: b.id, action: kind } })); } catch {}
+      }
       content = (
         <div>
           <h3>건물 정보</h3>
           <div>ID: {b.id}</div>
           <div>종류: {b.kind}</div>
           <div>위치: {b.position[0].toFixed(2)}, {b.position[2].toFixed(2)}</div>
+          <div>레벨: {level}</div>
+          <div>가동 상태: {(b as any).active === false ? '중지' : '가동'}</div>
           <div>근접 근로자 수(가시): {nearWorkers}</div>
+          {b.kind === 'Storage' && (
+            <div style={{ marginTop: 6, fontSize: 12, opacity: 0.9 }}>용량 보너스: +{100 * level}</div>
+          )}
+          <div style={{ marginTop: 8, display: 'flex', gap: 6 }}>
+            <button onClick={() => dispatch('upgrade')}>업그레이드</button>
+            <button onClick={() => dispatch('downgrade')}>다운그레이드</button>
+            <button onClick={() => { setBuildingActive(b.id, !(b as any).active); }}>가동/중지</button>
+          </div>
         </div>
       );
+    } else {
+      content = (<div>건물 데이터를 찾을 수 없습니다. (철거/변경되었을 수 있습니다)</div>);
     }
   }
 

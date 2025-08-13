@@ -2,6 +2,7 @@ import type { GameWorld } from '../ecs';
 import { getSanctums } from './SanctumSystem';
 import { addBlueprint, getBlueprints } from './BlueprintSystem';
 import type { RoadType } from './RoadNetwork';
+import { hasRoadNear } from './RoadNetwork';
 import { listJobChunks } from './JobChunkSystem';
 import { getBuildingsByKind } from './Buildings';
 import { getQty } from './Inventory';
@@ -18,6 +19,31 @@ function hasRoadOrBlueprintAt(pos: [number, number, number]): boolean {
   return false;
 }
 
+function pathKey(a: Pos, b: Pos): string {
+  const ax = Math.round(a[0]); const az = Math.round(a[2]);
+  const bx = Math.round(b[0]); const bz = Math.round(b[2]);
+  return ax < bx || (ax === bx && az <= bz) ? `${ax},${az}->${bx},${bz}` : `${bx},${bz}->${ax},${az}`;
+}
+
+function coverageAlong(from: Pos, to: Pos): number {
+  const dx = to[0] - from[0];
+  const dz = to[2] - from[2];
+  const len = Math.hypot(dx, dz);
+  if (len < 1e-3) return 1;
+  const ux = dx / len; const uz = dz / len;
+  const step = 2.0;
+  let covered = 0; let total = 0;
+  for (let t = 0; t <= len; t += step) {
+    const x = from[0] + ux * t; const z = from[2] + uz * t;
+    total++;
+    if (hasRoadNear(snap2(x), snap2(z), 0.9)) covered++;
+  }
+  return total > 0 ? covered / total : 1;
+}
+
+// per-session installed route registry
+const installedRoutes = new Set<string>();
+
 function placeRoadLine(from: [number, number, number], to: [number, number, number], type: RoadType, budget: number): number {
   const dx = to[0] - from[0];
   const dz = to[2] - from[2];
@@ -27,15 +53,20 @@ function placeRoadLine(from: [number, number, number], to: [number, number, numb
   const uz = dz / len;
   const step = 2.0;
   let placed = 0;
+  const key = pathKey(from, to);
+  // Skip if this route was already installed, or existing road coverage is high
+  if (installedRoutes.has(key)) return 0;
+  if (coverageAlong(from, to) >= 0.8) { installedRoutes.add(key); return 0; }
   for (let t = 0; t <= len && placed < budget; t += step) {
     const x = from[0] + ux * t;
     const z = from[2] + uz * t;
     const pos: [number, number, number] = [snap2(x), 0, snap2(z)];
-    if (hasRoadOrBlueprintAt(pos)) continue;
+    if (hasRoadOrBlueprintAt(pos) || hasRoadNear(pos[0], pos[2], 0.9)) continue;
     const ok = addBlueprint('Road' as any, pos, type, undefined, { silent: true });
     if (!ok) continue;
     placed += 1;
   }
+  if (placed > 0) installedRoutes.add(key);
   return placed;
 }
 
@@ -55,7 +86,7 @@ function nearest(of: Pos[], to: Pos): Pos | null {
 export function AutoRoadPlannerSystem(_world: GameWorld, dt: number): void {
   cooldown -= dt;
   if (cooldown > 0) return;
-  cooldown = 2.5; // evaluate every 2.5s
+  cooldown = 5.0; // evaluate every 5s to avoid spam
   const s = getSanctums()[0];
   if (!s) return;
   const storages = getBuildingsByKind('Storage');
@@ -131,7 +162,7 @@ export function AutoRoadPlannerSystem(_world: GameWorld, dt: number): void {
   }
 
   candidates.sort((a, b) => b.score - a.score);
-  let globalBudget = 12;
+  let globalBudget = 8; // smaller per tick
   let totalPlaced = 0;
   for (const c of candidates) {
     if (globalBudget <= 0) break;

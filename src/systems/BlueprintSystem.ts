@@ -9,6 +9,7 @@ import { getRoads } from './RoadNetwork';
 import costs from '../data/costs.json' with { type: 'json' };
 import { canConsume, consume } from './Inventory';
 import { getHeightAt } from './BiomeSystem';
+import { isInsideAnySanctumXZ } from './SanctumSystem';
 
 export interface Blueprint {
   id: string;
@@ -30,7 +31,7 @@ export function addBlueprint(
   position: [number, number, number],
   roadType?: RoadType,
   buildingKind?: BuildingKind,
-  options?: { skipCost?: boolean; silent?: boolean }
+  options?: { skipCost?: boolean; silent?: boolean; priority?: 'High' | 'Normal' }
 ): Blueprint | undefined {
   // Deduplicate: if same type and position (and roadType for roads) already exists, skip creating new entry
   const existing = blueprints.find((b) => b.type === type && isSamePos(b.position, position) && (type !== 'Road' || b.roadType === roadType));
@@ -52,12 +53,21 @@ export function addBlueprint(
     return blueprints.some((b) => b.type === 'Road' && Math.abs(b.position[0] - pos[0]) < 0.6 && Math.abs(b.position[2] - pos[2]) < 0.6);
   }
   if (type === 'Road') {
-    if (blockedByBuilding(position) || blockedByBuildingBlueprint(position)) {
+    // 도로: 성역 내부/외부 모두 허용 (겹침만 체크)
+    if (blockedByBuilding(position) || blockedByBuildingBlueprint(position) || blockedByRoad(position) || blockedByRoadBlueprint(position)) {
       if (!options?.silent) try { window.dispatchEvent(new CustomEvent('pfw-ui-log', { detail: { category: 'Build', text: '겹침: 건물과 도로가 겹칠 수 없습니다' } })); } catch {}
       return undefined;
     }
   } else if (type === 'Building') {
-    if (blockedByRoad(position) || blockedByRoadBlueprint(position) || blockedByBuilding(position) || blockedByBuildingBlueprint(position)) {
+    // 건물은 반드시 성역 내부
+    if (!isInsideAnySanctumXZ(position)) {
+      if (!options?.silent) try { window.dispatchEvent(new CustomEvent('pfw-ui-log', { detail: { category: 'Build', text: '성역 외부이므로 건설할 수 없습니다' } })); } catch {}
+      return undefined;
+    }
+    // 건물은 기존 건물/청사진과 더 넉넉한 거리(>=1.8m) 유지
+    const tooCloseToBuilding = getBuildings().some((b) => Math.hypot(b.position[0] - position[0], b.position[2] - position[2]) < 1.8);
+    const tooCloseToBuildingBp = blueprints.some((b) => b.type === 'Building' && Math.hypot(b.position[0] - position[0], b.position[2] - position[2]) < 1.8);
+    if (blockedByRoad(position) || blockedByRoadBlueprint(position) || tooCloseToBuilding || tooCloseToBuildingBp) {
       if (!options?.silent) try { window.dispatchEvent(new CustomEvent('pfw-ui-log', { detail: { category: 'Build', text: '겹침: 건물 배치 위치가 혼잡합니다' } })); } catch {}
       return undefined;
     }
@@ -76,8 +86,9 @@ export function addBlueprint(
     }
     for (const [id, q] of entries) consume(id as any, q as number);
   }
-  const bp: Blueprint = { id: `${type}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}` as const, type, position, roadType, buildingKind };
+   const bp: Blueprint = { id: `${type}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}` as const, type, position, roadType, buildingKind };
   blueprints.push(bp);
+  try { if (options?.priority === 'High') (globalThis as any).__pfw_hint = `우선 청사진 생성: ${type}${buildingKind ? `/${buildingKind}` : ''}`; } catch {}
   return bp;
 }
 

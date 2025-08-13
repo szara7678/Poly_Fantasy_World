@@ -19,6 +19,13 @@ const RES_TTL_MS = 10000; // 10s
 
 function computeAvailable(n: ResourceNode): number {
   const safeReserve = n.capMax * 0.2;
+  // 저장 용량이 가득 찼으면 채집을 전면 중지
+  try {
+    const inv: any = (globalThis as any).__pfw_inventory_api;
+    const item = n.type === 'Forest' ? 'Wood' : n.type === 'IronMine' ? 'Stone' : n.type === 'HerbPatch' ? 'Herb' : 'ManaRaw';
+    const free = inv?.getFreeCapacity?.(item) ?? Infinity;
+    if (free <= 0) return 0;
+  } catch {}
   return Math.max(0, Math.floor(n.capNow - safeReserve));
 }
 
@@ -82,8 +89,17 @@ export function pruneJobChunkReservations(): void {
 export function effectiveWorkersFor(chunkId: string, n: number): number {
   const c = chunks.get(chunkId);
   if (!c) return n;
-  // 제한 없음: 선형 효율
-  return n;
+  // 플랜 규칙 적용:
+  // eff(n) = n (n <= soft)
+  // eff(n) = soft + 0.6*(n-soft) (soft < n <= hard)
+  // n > hard 인 경우 hard 구간의 효율을 유지(더 이상 증원해도 효율 증가 없음)
+  const soft = Math.max(0, c.slots.soft);
+  const hard = Math.max(soft, c.slots.hard);
+  const nn = Math.max(0, Math.floor(n));
+  if (nn <= soft) return nn;
+  if (nn <= hard) return soft + 0.6 * (nn - soft);
+  // beyond hard: cap at eff(hard)
+  return soft + 0.6 * (hard - soft);
 }
 
 export function JobChunkSystem(_world: GameWorld, _dt: number): void {
@@ -141,17 +157,20 @@ export function JobChunkSystem(_world: GameWorld, _dt: number): void {
   pruneJobChunkReservations();
   // expose for quick UI linking without circular import
   (globalThis as any).__pfw_jobchunks = listJobChunks();
-  // Degrade road durability in batched intervals with larger steps
+  // Degrade road durability in batched intervals with larger steps (수요/트래픽 근사)
   try {
     const roads = getRoads();
     const store = (globalThis as any);
     store.__pfw_wear_accum = (store.__pfw_wear_accum ?? 0) + (_dt ?? 0);
-    const interval = 45; // seconds
+    const interval = 60; // slower wear application interval
     if (store.__pfw_wear_accum >= interval) {
       store.__pfw_wear_accum = 0;
-      const step = 0.08; // 8% wear at once
       for (const r of roads) {
-        r.durability = Math.max(0.5, (r.durability ?? 1) - step);
+        // 간이 트래픽: 인접 시민 수를 기반으로 마모량 증가(최대 +50%)
+        const nearC = ((globalThis as any).__pfw_cit_top5 ? Object.keys((globalThis as any).__pfw_cit_top5).length : 0);
+        const trafficMul = 1 + Math.min(0.3, nearC * 0.008);
+        const step = 0.04 * trafficMul; // wear slower
+        r.durability = Math.max(0.6, (r.durability ?? 1) - step);
       }
     }
   } catch {}

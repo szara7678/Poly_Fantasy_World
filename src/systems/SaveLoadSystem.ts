@@ -54,7 +54,16 @@ export function doLoad(): boolean {
         setSanctums(data.sanctums ?? []);
         // blueprints
         BP.clearBlueprints();
-        for (const b of data.blueprints ?? []) BP.addBlueprint?.(b.type as any, b.position as any, (b as any).roadType);
+        for (const b of data.blueprints ?? []) {
+          // 복원된 청사진: Road는 정상, Building은 비용을 재차 청구하지 않도록 'skipCost'로 복원.
+          BP.addBlueprint?.(b.type as any, b.position as any, (b as any).roadType, (b as any).buildingKind, { skipCost: true });
+          // BuildSystem에서 복원 건물 청사진은 비용을 건설 시작 시 1회만 청구하도록 플래그 부여
+          try {
+            const list = BP.getBlueprints();
+            const last = list[list.length - 1] as any;
+            if (last && last.type === 'Building') last.restored = true;
+          } catch {}
+        }
         // inventory (additive overwrite)
         for (const [k, v] of Object.entries(data.inventory ?? {})) addItem(k as any, (v as number) - (getInventory() as any)[k]);
         // roads

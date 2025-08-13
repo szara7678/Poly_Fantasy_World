@@ -1,7 +1,8 @@
 import React from 'react';
-import { openContract, listContracts, listLogs } from '../../systems/MarketSystem';
+import { openContract, listContracts, listLogs, getDesired, getSettlementPrice } from '../../systems/MarketSystem';
 import { getQty } from '../../systems/Inventory';
 import { getCoin } from '../../systems/Economy';
+import { getMarketFee } from '../../systems/ResearchSystem';
 
 export function MarketPanel(): React.JSX.Element {
   const [, force] = React.useState(0);
@@ -24,6 +25,10 @@ export function MarketPanel(): React.JSX.Element {
     <div>
       <h3>시장/무역</h3>
       <div style={{ fontSize: 12, opacity: 0.9 }}>Coin: {getCoin().toFixed(1)} / 재고: Wood {getQty('Wood')} / Stone {getQty('Stone')}</div>
+      <div style={{ fontSize: 11, opacity: 0.85, marginTop: 2 }}>
+        Wood Desired {getDesired('Wood')} · Price {getSettlementPrice('Wood').toFixed(2)} / Stone Desired {getDesired('Stone')} · Price {getSettlementPrice('Stone').toFixed(2)}
+      </div>
+      <div style={{ fontSize: 12, opacity: 0.8, marginTop: 2 }}>수수료: {(getMarketFee()*100).toFixed(0)}%</div>
       <div style={{ marginTop: 6 }}>
         <button onClick={() => openBuy('Wood')}>Wood 매수(20 @≤1.2)</button>
         <button onClick={() => openSell('Wood')} style={{ marginLeft: 6 }}>Wood 매도(20 @≥0.8)</button>

@@ -1,9 +1,10 @@
 import type { GameWorld } from '../ecs';
 import { getActiveWorld } from '../ecs';
-import { getBuildings } from './Buildings';
+import { getBuildings, addBuilding } from './Buildings';
 import { getRoads } from './RoadNetwork';
 import * as THREE from 'three';
 import type { SceneRoot } from '../render/three/SceneRoot';
+import { spawnCitizen } from './CitizenSystem';
 
 export interface SanctumData {
   center: [number, number, number];
@@ -130,6 +131,21 @@ export function expandSanctum(index: number): void {
 }
 
 export function SanctumSystem(_world: GameWorld, dt: number): void {
+  // 처음 실행 시 첫 성역 자동 선포(1회)
+  try {
+    const boot = (globalThis as any).__pfw_boot_sanctum_done as boolean | undefined;
+    if (!boot) {
+      (globalThis as any).__pfw_boot_sanctum_done = true;
+      const center: [number, number, number] = [0, 0, 0];
+      if (state.sanctums.length === 0 && !state.casting && state.cooldownRemainingSec <= 0) {
+        // 비용 없이 즉시 생성
+        state.sanctums.push({ center, radius: computeRadius(1), level: 1 });
+        try { window.dispatchEvent(new CustomEvent('pfw-sanctum-created', { detail: { center, radius: computeRadius(1), level: 1 } })); } catch {}
+        try { addBuilding('House' as any, center); } catch {}
+        try { spawnCitizen(5); } catch {}
+      }
+    }
+  } catch {}
   // Mana regen and upkeep
   const world = getActiveWorld();
   const upkeep = state.sanctums.length * UPKEEP_PER_SANCTUM_PER_SEC * getSanctumUpkeepMult();
@@ -137,6 +153,11 @@ export function SanctumSystem(_world: GameWorld, dt: number): void {
     world.player.manaMax,
     Math.max(0, world.player.mana + world.player.manaRegenPerSec * dt - upkeep * dt)
   );
+
+  // Ensure a 'Saint' idle marker stays at the first sanctum center (visual placeholder)
+  try {
+    (globalThis as any).__pfw_saint = state.sanctums[0]?.center ?? null;
+  } catch {}
 
   // Cooldown and casting timers
   if (state.cooldownRemainingSec > 0) state.cooldownRemainingSec = Math.max(0, state.cooldownRemainingSec - dt);
@@ -149,6 +170,9 @@ export function SanctumSystem(_world: GameWorld, dt: number): void {
           const created = { center: state.casting.center, radius: computeRadius(level), level } as const;
           state.sanctums.push({ center: created.center, radius: created.radius, level: created.level });
           try { window.dispatchEvent(new CustomEvent('pfw-sanctum-created', { detail: created })); } catch {}
+            // 성소 건물 생성 및 시민 5명 소환
+            try { addBuilding('House' as any, created.center); } catch {}
+            try { spawnCitizen(5); } catch {}
       } else if (state.casting.mode === 'expand') {
         const idx = state.casting.index;
         const s = state.sanctums[idx];

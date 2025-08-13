@@ -1,5 +1,5 @@
 import React from 'react';
-import { listUpgrades, canPurchase, purchase } from '../../systems/ResearchSystem';
+import { listUpgrades, canPurchase, purchase, getMarketFee, getSanctumUpkeepMult, getRoadSlopeAllowance } from '../../systems/ResearchSystem';
 import { getQty } from '../../systems/Inventory';
 import { setWorkers, getWorkers } from '../../systems/Workers';
 
@@ -30,6 +30,11 @@ export function ResearchPanel(): React.JSX.Element {
     <div>
       <h3>연구</h3>
       <div style={{ fontSize: 12, opacity: 0.9, marginBottom: 6 }}>RP: {getQty('ResearchPoint' as any)}</div>
+      <div style={{ fontSize: 11, opacity: 0.85, marginBottom: 6 }}>
+        <div>시장 수수료: {(getMarketFee()*100).toFixed(0)}%</div>
+        <div>성역 유지 멀티: {getSanctumUpkeepMult().toFixed(2)}×</div>
+        <div>도로 경사 허용: {getRoadSlopeAllowance()}°</div>
+      </div>
       {listUpgrades().map((u) => (
         <div key={u.id} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12 }}>
           <span>{u.id} (RP {u.costRP})</span>

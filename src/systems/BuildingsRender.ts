@@ -95,18 +95,23 @@ export function createBuildingsRenderSystem(scene: SceneRoot) {
     ndc.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
     ndc.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera(ndc, scene.camera);
-    const objs = Object.values(meshes);
-    const hits = raycaster.intersectObjects(objs, true);
+    const values = Object.values(meshes) as THREE.Object3D[];
+    const hits = raycaster.intersectObjects(values as THREE.Object3D[], true);
     if (hits.length > 0) {
-      const mesh = hits[0].object as THREE.Object3D;
-      const id = Object.entries(meshes).find(([k, v]) => v === mesh)?.[0];
+      // ascend to the root we manage
+      let o: THREE.Object3D | null = hits[0].object as THREE.Object3D;
+      const set = new Set(values as THREE.Object3D[]);
+      while (o && !set.has(o)) o = (o.parent as THREE.Object3D | null);
+      const root = o ?? hits[0].object;
+      const entry = Object.entries(meshes).find(([, v]) => v === root);
+      const id = entry?.[0];
       if (id) {
         try { window.dispatchEvent(new CustomEvent('pfw-open-inspector', { detail: { type: 'Building', id } })); } catch {}
       }
     }
   };
   const el = (scene as any).renderer?.domElement as HTMLCanvasElement | undefined;
-  if (el) el.addEventListener('click', onClick, true);
+  el?.addEventListener('click', onClick as EventListener, true);
 }
 
 

@@ -1,5 +1,6 @@
 import type { GameWorld } from '../ecs';
-import { getBuildingsByKind, type Building } from './Buildings';
+import { getBuildingsByKind, type Building, isBuildingActive } from './Buildings';
+import { upgradeBuilding, downgradeBuilding } from './Buildings';
 import { getRoleCounts } from './CitizenSystem';
 import { getThreat } from './MonsterSystem';
 import { getSanctums } from './SanctumSystem';
@@ -11,6 +12,7 @@ import { getQty, consume, addItem } from './Inventory';
 // Smelter: Stone -> IronIngot (프로토: Stone을 광석 대용)
 // Workshop: Plank + IronIngot -> Tool
 // ResearchLab: Tool -> ResearchPoint
+// Herbalist (미구현 렌더): Herb -> Tool(간이 회복제) 또는 RP 보조(이 예시는 추후 확장)
 
 export type Product = 'Plank' | 'IronIngot' | 'Tool' | 'ResearchPoint';
 
@@ -46,20 +48,30 @@ const jobProgress: Record<string, number> = {};
 
 function hasActiveWorkerAt(building: Building): boolean {
   const plist: Array<string> = (globalThis as any).__pfw_near_producers ?? [];
-  return plist.includes(building.id);
+  const counts: Record<string, number> = (globalThis as any).__pfw_near_producers_counts ?? {};
+  if (!plist.includes(building.id)) return false;
+  return (counts[building.id] ?? 0) > 0;
 }
 
 function tryProduce(kind: ProdKind, dt: number): void {
   const buildings = getBuildingsByKind(kind);
   const baseRate = 0.2; // per building per second
   for (const b of buildings) {
+    // 수동 중지 시 생산하지 않음
+    if (!isBuildingActive(b.id)) continue;
     // require an active Worker right next to the building (<=0.8m)
     if (!hasActiveWorkerAt(b)) continue;
     // 인접 보너스: 도로(이동/물류), 성역(사기/가호)
     const road = speedFactorAt(b.position[0], b.position[2]);
     const sanct = nearSanctumBonus(b.position[0], b.position[2]);
     const storage = nearStorageBonus(b.position[0], b.position[2]);
-    const rate = baseRate * Math.max(1.0, road) * sanct * storage;
+    // 동시 작업대: workstations.soft/hard(플랜)을 간이 반영 — 현재 인접한 작업자 수를 슬롯으로 간주
+    const counts: Record<string, number> = (globalThis as any).__pfw_near_producers_counts ?? {};
+    const nWorkers = Math.max(1, Math.floor(counts[b.id] ?? 1));
+    const soft = 2; const hard = 3;
+    const eff = nWorkers <= soft ? nWorkers : (soft + 0.6 * (Math.min(hard, nWorkers) - soft));
+    const levelMult = Math.max(1, (b as any).level ?? 1);
+    const rate = baseRate * levelMult * Math.max(1.0, road) * sanct * storage * Math.max(1, eff);
     // progress model: accumulate to 1.0 then consume recipe and yield 1 output unit
     const key = `${kind}_${b.id}`;
     const prev = jobProgress[key] ?? 0;
@@ -73,7 +85,20 @@ function tryProduce(kind: ProdKind, dt: number): void {
         if (kind === 'ResearchLab') return getQty('Tool' as any) >= 1;
         return false;
       })();
-      if (can) {
+      // 산출 용량이 가득 찼으면 생산 일시 정지(낭비 방지)
+      const outFull = ((): boolean => {
+        try {
+          const inv: any = (globalThis as any).__pfw_inventory_api;
+          const outItem = kind === 'Lumberyard' ? 'Plank' : kind === 'Smelter' ? 'IronIngot' : kind === 'Workshop' ? 'Tool' : 'ResearchPoint';
+          const free = inv?.getFreeCapacity?.(outItem) ?? Infinity;
+          return free <= 0;
+        } catch { return false; }
+      })();
+      if (can && !outFull) {
+        // marginal efficiency 툴팁: 현재 생산 효율 표시
+        try {
+          window.dispatchEvent(new CustomEvent('pfw-ui-log', { detail: { category: 'System', text: `생산 ${kind} eff≈${eff.toFixed(2)} (workers ${nWorkers}/${soft}/${hard})` } }));
+        } catch {}
         if (kind === 'Lumberyard') { consume('Wood', 1); addItem('Plank' as any, 1); try { window.dispatchEvent(new CustomEvent('pfw-ui-log', { detail: { category: 'Resource', text: '제재소 생산 +1 Plank (Wood -1)' } })); } catch {} }
         else if (kind === 'Smelter') { consume('Stone', 1); addItem('IronIngot' as any, 1); try { window.dispatchEvent(new CustomEvent('pfw-ui-log', { detail: { category: 'Resource', text: '제련소 생산 +1 IronIngot (Stone -1)' } })); } catch {} }
         else if (kind === 'Workshop') { consume('Plank' as any, 1); consume('IronIngot' as any, 1); addItem('Tool' as any, 1); try { window.dispatchEvent(new CustomEvent('pfw-ui-log', { detail: { category: 'Resource', text: '워크샵 생산 +1 Tool (Plank -1, IronIngot -1)' } })); } catch {} }
@@ -92,12 +117,28 @@ export function ProductionSystem(_world: GameWorld, dt: number): void {
   const total = Object.values(rc).reduce((a, b) => a + b, 0) || 1;
   const builderBonus = 1.0 + Math.min(0.3, ((rc['Builder'] ?? 0) / total) * 0.5);
   const researcherBonus = 1.0 + Math.min(0.3, ((rc['Researcher'] ?? 0) / total) * 0.5);
-  tryProduce('Lumberyard', dt * scale);
-  tryProduce('Smelter', dt * scale);
-  tryProduce('Workshop', dt * scale * builderBonus);
-  tryProduce('ResearchLab', dt * scale * researcherBonus);
+  const explorerBonus = 1.0 + Math.min(0.2, ((rc['Explorer'] ?? 0) / total) * 0.3); // 탐험가 많으면 가시 영역 넓어 생산 간접 보너스
+  tryProduce('Lumberyard', dt * scale * explorerBonus);
+  tryProduce('Smelter', dt * scale * explorerBonus);
+  tryProduce('Workshop', dt * scale * builderBonus * explorerBonus);
+  tryProduce('ResearchLab', dt * scale * researcherBonus * explorerBonus);
   // clear producer presence list after this frame
   (globalThis as any).__pfw_near_producers = [];
+  (globalThis as any).__pfw_near_producers_counts = {};
+
+  // handle building actions from inspector (upgrade/downgrade)
+  try {
+    const handler = (e: Event) => {
+      const ce = e as CustomEvent<{ id: string; action: 'upgrade' | 'downgrade' }>;
+      if (!ce?.detail?.id) return;
+      if (ce.detail.action === 'upgrade') upgradeBuilding(ce.detail.id);
+      else downgradeBuilding(ce.detail.id);
+    };
+    if (!(globalThis as any).__pfw_bld_actions_bound) {
+      window.addEventListener('pfw-building-action', handler as EventListener);
+      (globalThis as any).__pfw_bld_actions_bound = true;
+    }
+  } catch {}
 }
 
 

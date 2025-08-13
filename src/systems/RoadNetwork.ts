@@ -14,15 +14,66 @@ export interface RoadTile {
 
 const roads: RoadTile[] = [];
 
+// Spatial index for nearby lookups (simple uniform grid)
+const CELL_SIZE = 4; // meters
+const grid = new Map<string, RoadTile[]>(); // key: `${ix},${iz}`
+
+function keyFor(x: number, z: number): string {
+  const ix = Math.floor(x / CELL_SIZE);
+  const iz = Math.floor(z / CELL_SIZE);
+  return `${ix},${iz}`;
+}
+
+function addToGrid(tile: RoadTile): void {
+  const k = keyFor(tile.position[0], tile.position[2]);
+  const arr = grid.get(k) ?? [];
+  arr.push(tile);
+  grid.set(k, arr);
+}
+
+function getNearby(x: number, z: number): RoadTile[] {
+  const ix = Math.floor(x / CELL_SIZE);
+  const iz = Math.floor(z / CELL_SIZE);
+  const out: RoadTile[] = [];
+  for (let dz = -1; dz <= 1; dz++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const k = `${ix + dx},${iz + dz}`;
+      const arr = grid.get(k);
+      if (arr && arr.length) out.push(...arr);
+    }
+  }
+  return out;
+}
+
 export function addRoad(position: [number, number, number], type: RoadType = 'Dirt'): RoadTile {
+  // Deduplicate/merge: if a road tile already exists very close, merge instead of adding
+  const near = getNearby(position[0], position[2]);
+  const existing = near.find(r => Math.abs(r.position[0] - position[0]) < 0.9 && Math.abs(r.position[2] - position[2]) < 0.9);
+  if (existing) {
+    // Prefer higher-grade type by rough speed ordering
+    const order: Record<RoadType, number> = { Dirt: 1, Gravel: 2, Wood: 2, Stone: 3 } as any;
+    if (order[type] > order[existing.type]) existing.type = type;
+    existing.durability = Math.max(existing.durability ?? 1.0, 1.0);
+    return existing;
+  }
   const tile: RoadTile = { id: `road_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, position, type, durability: 1.0 };
   roads.push(tile);
+  addToGrid(tile);
   return tile;
 }
 
 export function addRoadWithDurability(position: [number, number, number], type: RoadType, durability: number): RoadTile {
+  const near = getNearby(position[0], position[2]);
+  const existing = near.find(r => Math.abs(r.position[0] - position[0]) < 0.9 && Math.abs(r.position[2] - position[2]) < 0.9);
+  if (existing) {
+    const order: Record<RoadType, number> = { Dirt: 1, Gravel: 2, Wood: 2, Stone: 3 } as any;
+    if (order[type] > order[existing.type]) existing.type = type;
+    existing.durability = Math.max(existing.durability ?? 1.0, Math.max(0.0, Math.min(1.0, durability)));
+    return existing;
+  }
   const tile: RoadTile = { id: `road_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, position, type, durability: Math.max(0.0, Math.min(1.0, durability)) };
   roads.push(tile);
+  addToGrid(tile);
   return tile;
 }
 
@@ -30,9 +81,16 @@ export function getRoads(): RoadTile[] {
   return roads;
 }
 
+// Query: is there a road tile near x,z within tolerance meters
+export function hasRoadNear(x: number, z: number, tol = 0.9): boolean {
+  const near = getNearby(x, z);
+  return near.some(r => Math.abs(r.position[0] - x) < tol && Math.abs(r.position[2] - z) < tol);
+}
+
 export function speedFactorAt(x: number, z: number): number {
   let factor = 1.0;
-  for (const r of roads) {
+  const candidates = getNearby(x, z);
+  for (const r of candidates) {
     const dx = x - r.position[0];
     const dz = z - r.position[2];
     const distSq = dx * dx + dz * dz;
