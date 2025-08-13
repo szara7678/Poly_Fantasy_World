@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { GameWorld } from '../ecs';
 import type { SceneRoot } from '../render/three/SceneRoot';
-import { addExploredStroke } from './FogOfWarSystem';
+import { addExploredStroke, addVisibleSweep } from './FogOfWarSystem';
 import { speedFactorAt } from './RoadNetwork';
 
 interface Scout {
@@ -55,6 +55,8 @@ export function ScoutSystem(_world: GameWorld, dt: number): void {
         ],
         10
       );
+      // 간이 부채꼴 스윕: 현재 위치를 중심으로 25m 원형 가시 스탬프
+      addVisibleSweep([s.pos.x, s.pos.z], 25);
       s.lastStrokePos.copy(s.pos);
     }
   }

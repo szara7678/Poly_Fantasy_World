@@ -1,534 +1,434 @@
-1. 게임 개요
+Ⅰ. 최종 기획서 (GDD v0.1)
+1) 게임 개요
 가제: 성자의 영토 (Saint’s Dominion)
 
 장르: 실시간 콜로니 시뮬 + 라이트 RPG + 생존/건설
 
-렌더/플랫폼: Three.js(WebGL) / GitHub Pages 배포 대상
+플랫폼: Three.js(WebGL), GitHub Pages 배포
 
-핵심 판정:
+핵심 판정
 
-성자는 불멸이지만 전투력은 낮음. 성역화로 영토를 창건/확장, 건물은 성역 내부에만 건설 가능.
+성자: 불멸 수명·전투력 낮음. 성역화로 영토 창건/확장. 성자가 사망하면 즉시 패배.
 
-몬스터는 성역 내부로 진입 불가(경계 관통 원거리 피해 −50%).
+성역 규칙: 건물은 성역 내부에만 건설 가능. 몬스터 진입 불가, 경계 관통 피해 −50%.
 
-**시민(엔티티)**는 자율 AI로 영역 지정·건설·직업 선택·우선순위를 결정. 플레이어는 **전언(Edict)**과 타겟 지시로 큰 방향만 제어.
+시민: 자율 AI. **전언(Edict)**과 타겟 지시로 플레이어가 방향만 제어.
 
-자원 노드는 최대량/일일 재생량을 가지며, 채집 건물 없이 인력이 직접 채집 후 가공.
+자원 노드: 최대량(capMax)/일일 재생(regen). 채집 건물 없음—인력이 직접 채집→가공.
 
-성역 밖에서는 도로만 건설 가능(이동속도 향상).
+영토 밖: 도로만 건설 가능(이동/물류 보너스).
 
-상인/경제/무역으로 적자 품목을 교역, 잉여를 판매.
+경제/무역: 정착지 금고·시장·교역소·캐러밴. 수요/공급 기반 가격.
 
-2. 핵심 루프
-탐사(안개 해제) → 성역화로 거점 확보 → 시민 자율 채집/건설/제작/연구 → 상인 교역/도로로 물류 최적화 → 레이드/보스 대응(영웅+성자 기적) → 위성 마을 창건 → 고급 연구·룬·마나공학 → 승리 목표 달성.
+2) 핵심 루프
+탐사(FoW 해제) → 성역화로 거점 확보 → 시민 자율 채집/건설/제작/연구
+→ 도로/상인으로 물류 최적화 → 레이드/보스 방어(영웅+성자 기적)
+→ 위성 마을 창건 → 고급 연구·룬·마나공학 → 승리 조건 달성.
 
-3. 월드·안개·바이옴
-안개(FoW):
-
-상태: Unseen/Explored/Visible
+3) 월드/안개/바이옴
+안개(FoW) 상태: Unseen / Explored / Visible
 
 성역 내부: 항상 Visible
 
-정찰·사냥꾼·벌목꾼·상인이 다닌 경로 중심 폭 812m가 Explored로 누적(510분 후 일부 퇴색)
+정찰/사냥꾼/벌목꾼/상인 경로 중심 폭 8~12m가 Explored로 누적(5~10분 후 일부 퇴색)
 
 정찰 임무: 30초마다 부채꼴 25m Visible 스윕
 
-바이옴 예: 초원/침엽수림/산악/사막/늪/화산/마나황무지 (난이도·자원/위협 테이블 상이)
+바이옴: 초원/침엽수림/산악/사막/늪/화산/마나황무지(자원·위협·날씨 테이블 상이)
 
-4. 성자·성역(영토)
-기적: 성역화(Consecrate)
+4) 성자·성역(영토)
+성역화(Consecrate): 마나 180, 시전 6s, 쿨다운 180s
 
-마나 180, 시전 6초, 쿨다운 180초
+반경 = 18m × (성소 레벨+1) (초기 36m)
 
-반경 18m × (성소 레벨+1) (초기 36m) 원형 성역 생성/확장
-
-유지비: 성역 1개당 −0.2 마나/s (정착지 신앙 총합/100만큼 상쇄)
+유지비: 성역 1개당 −0.2 마나/s(정착지 신앙 총합/100만큼 상쇄)
 
 상한: 동시 2개(연구로 +1, +1)
 
-안전: 성역 내 몬스터 진입 불가. 경계 관통 원거리/광역 피해 −50%
+안전: 성역 내 몬스터 진입 불가. 경계 관통 피해 −50%
 
-건설 규칙: 성역 내부만 모든 건축 가능, 성역 밖은 도로만 건설 가능
+건설: 성역 내부 모든 건물, 성역 밖 도로만
 
-위성 마을:
+위성 마을: 성자+개척대(5~12) 이동→성역화→성소/창고/주거 자동 청사진→자율 정착.
+본거지와 도로 연결 시 보급/교역/방어 효율 상승.
 
-성자+개척대(5~12명) 캐러밴 이동 → 성역화 → 성소/창고/주거 자동 청사진 → 자율 정착
+5) 자원 노드·채집(동시 배치)
+노드 기본
 
-본거지와 도로 연결 시 물류·교역·방어 효율 상승
+숲: capMax 1000, regen +2/일, 벌목 1~3통/행동
 
-5. 자원 노드·채집
-노드 모델(예시):
+철광산: capMax 1000, regen +1/일, 1광석/행동
 
-숲(Forest): capMax 1000, regen +2/일, 벌목 1~3통/행동
+약초지: capMax 300, regen +3/일
 
-철광산(IronMine): capMax 1000, regen +1/일, 광석 1/행동
+마나원: capMax 200, regen +0.5/일(정제 필요)
 
-약초지(HerbPatch): capMax 300, regen +3/일
+안전 저수준: capMax의 **20%**는 보존(SafeReserve)
 
-마나원(ManaSpring): capMax 200, regen +0.5/일(정제 필요)
+일일 쿼터: min(capNow - SafeReserve, 가용인력×작업률)
 
-안전 저수준(SafeReserve): capMax의 20%는 보존, 그 이하로 내려가면 하루 쿼터 축소/중지
+채집 건물 없음: 인력이 직접 채집→창고→가공(제재소/제련/공방 등)
 
-일일 쿼터: min( capNow - SafeReserve , 가용 인력×작업률 )만큼 벌목/채광 작업 청크 자동 발행
+동시 배치 규칙 (모든 노드/작업장 공통):
 
-채집 건물 없음: 인력이 직접 캐서 창고 → 가공시설로 투입(제재소/제련/공방 등)
+slots.soft(권장), slots.hard(최대)
 
-6. 도로(성역 밖 건설 유일)
-타입	비용(타일)	속도계수	특기
-흙길	노역	×1.25	어디든, 비 후 ×1.15
-자갈길	돌×1	×1.40	경사<30°
+effCurve(n):
+
+n ≤ soft → 선형, eff = n
+
+soft < n ≤ hard → 감가 40%, eff = soft + 0.6×(n-soft)
+
+처리량(초당) = Σ(workerRate_i) × (eff/n) × localMultiplier
+
+6) 도로(성역 밖 유일 건설)
+타입	비용/타일	속도계수	특기
+흙길	노역	×1.25	어디든(비 후 ×1.15)
+자갈길	돌×1	×1.40	경사 < 30°
 판잣길(습지)	목재×1	×1.35	습지 특화
 석판로	돌×2	×1.55	평탄 필요, 내구 최고
 
-내구 소모 → 보수 태스크 자동 생성
+내구 소모→보수 태스크 자동 생성
 
-자동 도로 플래너(선택): 성소/창고 ↔ 빈발 노드/위성 마을/시장 간 흐름/길이/안전/지형 점수로 노선 제안
+자동 도로 플래너(선택): 수요/길이/안전/지형 점수로 노선 제안
 
-7. 시민·직업·자율 AI
-스탯: STR/DEX/INT/VIT/WIS/CHA(020, 평균 810)
+7) 시민(엔티티)·직업·자율 AI
+기본 스탯(020, 평균 810): STR/DEX/INT/VIT/WIS/CHA
 
-파생: HP=50+VIT×10, Stamina=50+(STR+DEX)×5, Mana=30+(INT+WIS)×8
+파생: HP=50+VIT×10, Stamina=50+(STR+DEX)×5, Mana=30+(INT+WIS)×8, Carry=20+STR×2, Move=3.5m/s×(1+DEX/50−중량)
 
-적성(★0~3): 채집/벌목/채광/사냥/농사/목축/공예/대장/건축/연금/치유/연구/전투
+적성(★0~3): 벌목/채광/사냥/농사/목축/공예/대장/건축/연금/치유/연구/전투/상인
 
-특성: 근면/겁쟁이/신실/야행성/손재주/불굴 등(±5~15%)
+특성: 근면/겁쟁이/신실/야행성/손재주/불굴(±5~15%)
 
 역할: 벌목꾼/광부/사냥꾼/농부/건축가/대장장이/연금술사/치유사/연구자/경비병/상인
 
-자율 의사결정(핵심):
+자율 의사결정(유틸리티)
 
 markdown
 복사
-편집
-작업 점수 = Base × Aptitude × Context × Distance × Risk × Edict × Need × Facility × Fatigue
-           + TargetOrder
-Base: 작업 기본 매력도(건설1.2/전투1.3/채집1.0/연구0.9 등)
+작업 점수 U = Base × Aptitude × Context × Distance × Risk × Edict
+               × Need × Facility × Fatigue + TargetOrder
+Distance = 1/(1+d/R), Risk = 1−clamp(위험×취약,0,0.6)
 
-Aptitude: 1+0.25×★ + (관련 스탯−10)/40
+Edict(전언) 가중 1.1~2.0, 총합 ×3 캡
 
-Context: 전시/흉년/부상/경제(가격·재고) 반영
+직업 자동 결정: 현재 역할보다 +20% 높은 역할 점수가 2분 지속 시 전직
 
-Distance: 1/(1+d/R) (R: 작업별 기준거리)
+작업 예약: Job Chunk 슬롯 선점(타임아웃/반납)
 
-Risk: 1−clamp(위험×취약,0,0.6)
+전시 체제: 위협>0.6 → 전투/방어 가중↑, 비전투↓
 
-Edict: 전언 가중(1.1~2.0, 총합×3 캡)
+성장·세대(선택): 부부/가족·출생·교육→적성 확률·초기 스킬에 소폭 영향
 
-Need: (소비−생산)/소비 (부족 품목↑)
+8) 전언(Edict)·타겟 지시
+전언: 도메인/태그/강도/TTL/감쇠
 
-Facility: 관련 건물 포화/레벨/인접 보너스
+예) 채집/철광산, 전투/늑대, 건설/도로, 연구/금속공, 무역/철괴
 
-Fatigue: 생리/사기 보정(0.5~1.0)
+타겟 지시: 특정 몬스터/노드/좌표. 만료/실패 규칙, 우선권 최고.
 
-TargetOrder: 플레이어 하드 지시 가산(+0.8~+1.5)
-
-직업 자동 결정: 현 역할보다 +20% 이상 높은 역할 점수가 2분 연속 유지 시 전직
-
-작업 예약: Job Chunk에 슬롯 선점(타임아웃/반납 포함)
-
-전시 체제: 위협>0.6 → 전투·방어 가중↑, 비전투↓, 방어 건물 우선
-
-8. 전언(Edict)·타겟 지시
-전언: 분야/태그로 가중치 곱:
-
-채집/마나석, 채집/철광산, 채집/숲
-
-전투/늑대, 전투/트롤, 전투/언데드
-
-건설/시장, 건설/교역소, 건설/도로, 건설/대장간
-
-연구/룬학, 연구/금속공
-
-무역/식량, 무역/철괴 … (지속·감쇠·TTL)
-
-타겟 지시: 특정 몬스터/노드/지점에 하드 오더(만료/실패 규칙, 우선권 최고)
-
-9. 영웅·성자·전투
-영웅 듀오: 높은 기본치+시너지(수호/사냥형), 탱/원/마/드루 혼합
-
-성자 기적(발췌):
-
-성역(범위 보호/면역), 치유의 파동, 정화, 시간 완화, 수호정령 소환, 영혼 귀환, 성역화
+9) 영웅·성자·전투
+영웅 듀오(수호+사냥형 조합 권장), 스킬 2~3개
 
 피해 타입: 참/관통/둔기, 화염/빙결/전기/독/신성/암흑/비전
 
-상성 예: 둔기→골렘/갑주 강, 신성→언데드 강, 화염→식물 강(빙결 약)
+상성: 둔기→골렘/갑주 강, 신성→언데드 강, 화염→식물 강(빙결 약)
 
-10. 몬스터
-분류: 야수(늑대/곰), 요마(고블린/트롤), 원소(정령), 언데드(해골/망령), 마나 변이(포식자/수정 골렘)
+TTK 목표: 초반 일반몹 6~10초(영웅1+경비2)
 
-등급: 일반/정예/보스 (HP/공격/특수/드랍 차등)
+성자 기적: 성역/치유의 파동/정화/시간 완화/수호정령/영혼 귀환/성역화
 
-규칙: 성역 내부 진입 불가, 경계 밖에서의 공격은 성역 관통 페널티 적용
+10) 몬스터
+분류: 야수(늑대/곰), 요마(고블린/트롤), 원소(정령), 언데드(해골/망령), 마나 변이(수정 골렘 등)
 
-AI: 위협도 기반 타겟팅, 보스 페이즈 전환
+등급: 일반/정예/보스
 
-11. 건물(성역 내부 전용) & 생산
-핵심: 성소, 주거, 창고, 제재소, 제련소, 공방, 대장간, 연금실, 연구실, 병영/사격장/마탑, 시장/교역소, 성벽/탑
+규칙: 성역 내부 진입 불가, 경계 관통 공격 페널티
 
-인접 보너스: 창고·도로·성소 근접 시 생산·이동 효율↑
+AI: 위협도 기반 타겟팅, 보스 페이즈
 
-업그레이드: Lv1~3(슬롯/속도/품질/수수료 개선)
+11) 건물(성역 내부 전용) & 생산(동시 작업)
+핵심 건물: 성소, 주거, 창고, 제재소, 제련소, 공방, 대장간, 연금실, 연구실, 병영/사격장/마탑, 시장/교역소, 성벽/탑
 
-건설 자동 우선순위 점수(발췌):
+동시 작업대: workstations.soft/hard
+
+제련소 v1: 2/3, 대장간 v1: 2/2, 공방 v1: 2/3, 연구실 v1: 1/2
+
+인접 보너스: 창고·도로·성소 근접 시 생산/이동/사기 보정
+
+업그레이드: Lv1~3(슬롯·속도·품질·수수료 개선)
+
+건설 자동 우선순위
 
 makefile
 복사
-편집
 BScore = CapacityDeficit + ProductionDeficit + WarFooting + Synergy
        + DistancePenalty + ResourceFeasibility + EdictBuild
 (임계 초과 시 자율 청사진 생성)
 
-12. 아이템/티어/룬
+12) 아이템/티어/룬
 티어: 돌 → 청동 → 철 → 강철 → 마나합금
 
 도구: 도끼/곡괭이/톱/망치/괭이/부삽/낫/등불/수레
 
 무기/방어: 검/창/도끼/곤봉/활/쇠뇌/지팡이, 천/가죽/사슬/판금/로브/방패
 
-룬: 화염/빙결/전기/신성/비전 각인(공격/내성/자원 효율 보정)
+룬: 화염/빙결/전기/신성/비전(공격/내성/자원효율)
 
-13. 경제·상인·무역
-화폐: Coin(금고)
+13) 경제·상인·무역
+화폐: Coin(정착지 금고)
 
 시장(Market): 매수/매도 계약(수량·상/하한가·기한), 수수료 5%(업글 3%)
 
-교역소(Tradepost): 캐러밴 파견/접수, 거래 한도 보너스
+교역소(Tradepost): 캐러밴 슬롯 제공(soft/hard), 노선 효율
 
-가격:
+가격식
 
 ini
 복사
-편집
 SettlementPrice = BasePrice × (1 + Scarcity)
 Scarcity = clamp((Desired - Current)/Desired, -0.4, +1.0)
-상인 역할: 노선 점수 = 예상이익 − 위험비용 − 시간비용 (전언: 무역/품목 가중)
+노선 점수
 
-캐러밴: 상인1+운반1~4+노새/수레(+경비), 도로 계수 적용
+ini
+복사
+RouteScore = (Profit - RiskCost - TimeCost) × EdictTrade
+캐러밴: 상인1 + 운반1~4 + 노새/수레(+경비), 도로 계수 적용
 
-14. 진행·연구·이벤트
-연구: 생존→농업→금속→군사→마법→문명→고대기술(성역 상한/반경↑, 마나 유지 효율↑)
+14) 진행·연구·이벤트
+연구 트리: 생존→농업→금속→군사→마법→문명→고대기술(성역 상한/반경↑, 마나 유지 효율↑)
 
 시즌: 봄/여름/가을/겨울(생산/소비 보정)
 
 이벤트: 마나폭풍/역병/순례/도적단/레이드/유적
 
-15. 밸런싱 기본값(초안)
+15) 밸런싱 기본값
 성역: 반경 36m(Lv1), 유지 −0.2 마나/s/성역, 상한 2개
 
 도로 속도: 1.25/1.40/1.35/1.55 (흙/자갈/판자/석판)
 
-노드: 숲 1000(+2/일), 철 1000(+1/일), 안전저수준 20%
+노드: 숲 1000(+2/일), 철 1000(+1/일), SafeReserve 20%
 
-자원 속도: 벌목 1통/8s, 채광 1광석/10s, 운반 1통/3s(거리 보정)
+속도: 벌목 1통/8s, 채광 1광석/10s, 운반 1통/3s(거리 보정)
 
-전투 TTK: 초반 일반몹 6~10s(영웅1+경비2 기준)
+전투 TTK: 6~10s, 전시 임계 0.6(해제 0.4)
 
-전시 임계: 위협>0.6 (해제<0.4)
+전언 상한: 곱 총합 ×3.0, 전직 히스테리시스: +20%/120s
 
-전언 상한: 모든 곱 총합 ×3.0
+도구 계수: T1 +15%, T2 +30%, T3 +50%
 
-전직 히스테리시스: +20%/120초
-
-16. 데이터 스키마(샘플)
+16) 데이터 스키마(요약 샘플)
 json
 복사
-편집
 // 성역
-{ "sanctumId":"S_home","center":[0,0,0],"radius":36,
-  "upkeepManaPerSec":0.2,"noMonsterEntry":true,"rangedMitigation":0.5 }
-
+{"sanctumId":"S_home","center":[0,0,0],"radius":36,"upkeepManaPerSec":0.2,"noMonsterEntry":true,"rangedMitigation":0.5}
 // 성역화 주문
-{ "spellId":"Consecrate","manaCost":180,"castTime":6,"cooldown":180,
-  "radiusPerLevel":18,"upkeepPerSanctum":0.2,"maxSanctums":2 }
-
+{"spellId":"Consecrate","manaCost":180,"castTime":6,"cooldown":180,"radiusPerLevel":18,"upkeepPerSanctum":0.2,"maxSanctums":2}
 // 자원 노드
-{ "nodeId":"iron_i07","type":"IronMine","capMax":1000,"capNow":612,"regenPerDay":1 }
-
+{"nodeId":"iron_i07","type":"IronMine","capMax":1000,"capNow":612,"regenPerDay":1,"slots":{"soft":4,"hard":6}}
 // 도로
-{ "roadId":"r_17","type":"Stone","from":[0,0,0],"to":[620,0,440],"len":760 }
-
-// 거래 계약
-{ "contractId":"sell_leather_80","kind":"Sell","item":"Leather",
-  "qty":80,"limitPrice":3,"expiresDay":31,"status":"Open" }
-
-// 작업 청크(채집)
-{ "jobChunkId":"Gather_iron_i07_04","type":"Gather","resource":"IronOre",
-  "pos":[618,0,438],"nodeId":"iron_i07","slots":3,"danger":0.12 }
-
+{"roadId":"r_17","type":"Stone","from":[0,0,0],"to":[620,0,440],"len":760}
+// 계약
+{"contractId":"sell_leather_80","kind":"Sell","item":"Leather","qty":80,"limitPrice":3,"expiresDay":31,"status":"Open"}
+// 작업 청크
+{"jobChunkId":"Gather_iron_i07_04","type":"Gather","resource":"IronOre","pos":[618,0,438],"nodeId":"iron_i07","slots":3,"danger":0.12}
 // 전언
-{ "id":"edict_Gather_Iron","domain":"Gather","tag":"IronMine",
-  "mult":1.6,"ttl":600,"decay":0.996 }
-17. 시스템 설계 간단 의사코드
+{"id":"edict_Gather_Iron","domain":"Gather","tag":"IronMine","mult":1.6,"ttl":600,"decay":0.996}
+17) 시스템 의사코드(발췌)
 ts
 복사
-편집
-// 일일 노드 재생 & 쿼터
+// 일일 재생 & 쿼터
 for (node of nodes) {
   node.capNow = clamp(node.capNow + node.regenPerDay*daysElapsed, 0, node.capMax);
-  if (node.capNow > node.capMax*0.2) spawnGatherJobs(node); // SafeReserve
+  if (node.capNow > node.capMax*0.2) spawnGatherJobs(node);
 }
+// 건설 가능
+function canBuild(pos,type){ return type==="Road" || isInsideAnySanctum(pos); }
+// 작업 선택
+const cand = senseJobs(ent);
+for (const t of cand) t.u = score(ent,t,bb);
+const best = argmax(cand,x=>x.u);
+if (reserve(best)) assign(ent,best);
+18) UI/UX(핵심)
+전언 패널: 분야 탭·태그·강도/지속 슬라이더, 감쇠·잔여
 
-// 건설 가능 판정
-function canBuild(pos, type){
-  if (type === "Road") return true;                // 어디든 도로 OK
-  return isInsideAnySanctum(pos);                  // 그 외는 성역 내부만
-}
+타겟 지시: 대상 클릭→“타겟”(위험·요구 역할 미리보기)
 
-// 시민 의사결정(요약)
-candidates = senseJobs(entity);
-for (t of candidates) t.u = score(entity, t, blackboard); // 점수식
-best = argmax(candidates, x=>x.u);
-if (reserve(best)) assign(entity,best);
-18. UI/UX
-전언 패널: 분야 탭(채집/전투/건설/연구/무역/성역) + 태그 검색 + 강도/지속 슬라이더, 현재 전언 리스트(감쇠/잔여)
+성역 패널: 반경/유지비/신앙 상쇄, 확장 미리보기
 
-타겟 지시: 대상 클릭→“타겟” 버튼(위험·요구 역할 미리보기)
+도로 도우미: 추천 노선 표시→수락 시 청사진 생성
 
-성역 패널: 현 성역 반경/유지비/신앙 상쇄, 확장 버튼(미리보기)
+우선순위 디버거: 엔티티 Top-5 작업, 가중 항목 바차트
 
-도로 도우미: 추천 노선 표시(점수), 수락 시 청사진 생성
+동시 처리 가시화: 대상에 정원 바(n/soft/hard), 효율 툴팁 effCurve(n)
 
-우선순위 디버거: 엔티티 선택 시 Top-5 작업과 가중 항목 바차트
-
-19. 기술 스택·배포
-렌더/물리: Three.js + Rapier(CPU/WASM) 또는 cannon-es
+19) 기술 스택/배포
+렌더/물리: Three.js + Rapier(WASM) 또는 cannon-es
 
 아키텍처: ECS(bitecs/ecsy) + BT/Utility AI + Recast/Detour(navmesh)
 
-번들: Vite (base:'/repo-name/'로 GH Pages 호환)
+번들: Vite (base:'/repo-name/')
 
 자원: glTF 로우폴리, 텍스처 512~1024, 오브젝트 풀/LOD
 
-배포: dist/를 gh-pages 브랜치 푸시
+배포: dist/ → gh-pages 자동 배포(CI)
 
-20. 프로토타입 로드맵(4 스프린트)
-성역화/건설/자원 노드/도로 + 자율 AI 기본 루프
+20) 승리/패배·품질·텔레메트리
+승리(예시): ① 3개 바이옴에 성역 Lv3 유지, ② 월드보스 1체 토벌, ③ 고대기술 완성(任)
 
-전언/타겟/위협-전시 + 영웅·성자 핵심 기적 2~3종
+패배: 성자 사망 또는 정착민 전멸
 
-시장/교역소/상인/캐러밴 + 가격·계약·무역 루프
+성능: 60fps@1080p, DrawCalls<350, Tris<150k, 텍스처<128MB
 
-보스 1종/레이드/연구·룬 + 튜토리얼/밸런스 곡선 + 저장/로드
+텔레메트리: 생산–소비, 전언 사용률, 캐러밴 수지, 전투 TTK, AI 틱 시간
 
-필요하면 이 기획을 바로 **데이터 팩(JSON)**과 **ECS 시스템 뼈대(TypeScript)**로 쪼개서 줄게(예: SanctumSystem, FogOfWarSystem, NodeRegenSystem, RoadPlannerSystem, TradeSystem, EdictSystem). 다음 단계로 데이터 스키마 파일들부터 만들어줄까, 아니면 ECS 코드 템플릿부터 갈까?
+Ⅱ. 구현 로드맵 (시각화 우선, GH Pages 주기 배포)
+각 단계는 보이는 것 → 시스템/데이터 → 3D 메쉬 → 완료 기준(DoD).
+권장 템포: 2~4일/단계, 끝날 때마다 5~10초 GIF와 함께 배포.
 
+P0 — 부팅씬 & 그레이박스
+보이는 것: 평지, 스카이, 카메라, FPS HUD
 
+시스템: Vite+TS+ECS, GH Pages CI, /data/constants.json 로드
 
+DoD: 페이지 접속 60fps, CI 배포 성공
 
+P1 — 안개(FoW) & 정찰 궤적
+보이는 것: 정찰자가 지나간 부채꼴만 드러남
 
+시스템: FoW 텍스처(Explored/Visible), 경로 기록/퇴색
 
+DoD: 이동에 따라 지형이 드러남
 
+P2 — 성자 & 성역화 링
+보이는 것: 성역 링 맥동, 성역 내 프리뷰 초록/외부 빨강
 
+시스템: miracle.consecrate(180/6s/180s), 성역 레지스트리/유지비
 
-0. 준비(3~5일)
-목표: 깃허브 페이지로 배포 가능한 기본 뼈대와 품질/성능 가드레일 세팅
-해야 할 일
+DoD: 성역 내 건설만 허용
 
-Vite + TypeScript + ESLint/Prettier + Vitest 세팅, base:'/repo-name/'
+P3 — 기본 건물 3종(성소/창고/주거)
+보이는 것: 블루프린트→착공→완공 단계 연출
 
-ECS(bitecs) 골격, 시스템 루프/고정틱(30–60Hz) vs 렌더틱 분리
+시스템: 건설 큐·자원 소모·철거, 배치 검증
 
-Three.js 씬/카메라/조명/프리패브 로더(glTF)
+DoD: 3종 배치/철거/재건 OK
 
-GitHub Actions: main → build → gh-pages 자동 배포
+P4 — 노드 시각화 + A1 작업 청크/예약
+보이는 것: 숲/철광 게이지, 작업 아이콘, 중복 작업 방지
 
-디버그 패널(프레임, 드로콜, 삼각형 수, 메모리, AI틱 시간)
+시스템: nodes.json(Forest/Iron), 일일 재생, 슬롯/예약/타임아웃
 
-성능 예산: 60fps@1080p, DrawCalls<400, Tris<200k, 텍스처 <256MB
+DoD: 새벽 재생, 작업 충돌 해소
 
-DoD
+P5 — 채집 루프 + A2 유틸리티 재평가
+보이는 것: 벌목/채광→창고 카운터 상승, 시민 Top-3 작업 바
 
-https://username.github.io/repo-name/ 에 빈 씬+UI 패널이 뜬다
+시스템: items/recipes, 유틸리티 공식(0.5~1.0s 재평가)
 
-CI 성공, ESLint/타입체크 통과
+DoD: 상황 변화 시 즉시 작업 전환
 
-1 스프린트: 월드·안개·카메라(2주)
-목표: **안개(FoW)**와 기본 월드가 돌아간다
-구현
+P6 — 도로 4종 + A6 경로비용 반영
+보이는 것: 도로별 시각 차이, 경로 굵기/위험 표기
 
-타일/청크 월드, 높이/바이옴 샘플러(간단 노이즈)
+시스템: 도로 그래프/속도/보수, 경로비용→유틸리티 Distance/Risk 반영
 
-FoW: Unseen/Explored/Visible 텍스처 기반 셰이딩
+DoD: 길 깔면 왕복 시간 체감 감소
 
-시야 소스: 성역 내부 상시 Visible, 정찰자/사냥꾼/벌목꾼/상인 경로 폭 8~12m로 Explored 누적(시간 경과 퇴색)
+P7 — 전언(Edict) 히트맵 A3
+보이는 것: “채집/철광 ×1.6” → 히트맵 붉어짐, 동선 변화
 
-카메라(줌/회전), 선택/하이라이트, 기본 UI 프레임
+시스템: edicts.json, 총합×3 캡, 전언 패널
 
-DoD
+DoD: 전언 On/Off로 우선순위 즉시 변동
 
-시작 지점만 보이고, 정찰자 이동에 따라 지도가 드러남
+P8 — 위성 성역 + A4 타겟 지시
+보이는 것: 원거리 새 성역 점등, 타겟 표식·비전투 우회
 
-브라우저 새로고침 후 기본 설정 유지(로컬 저장)
+시스템: 동시 성역 2개, 타겟 스택(+TargetOrder)
 
-2 스프린트: 성자·성역·건설 규칙(2주)
-목표: **성역화(Consecrate)**와 “성역 안에서만 건설” 규칙 확립
-구현
+DoD: 새 성역 내만 건설·타겟 종료 시 복귀
 
-성자 엔티티/마나/기적 캐스팅, Consecrate(mana180, cast6s, cd180s)
+P9 — 몬스터 스폰 + A5 역할 자동 결정
+보이는 것: 밤 늑대 무리, 시민 역할 배지/전직 토스트
 
-성역 데이터(중심/반경/유지비) + 몬스터 진입 금지/경계 관통 피해 −50%
+시스템: 성역 경계 페널티, RoleScore(+20%/120s 전직)
 
-건설 시스템: 성역 내부만 건물 배치 허용, 성역 밖은 도로만 허용
+DoD: 위협↑ 시 경비 증가·평시 생산 증가
 
-기본 건물 3종(성소/창고/주거) 배치/철거/업그레이드
+P10 — 영웅 듀오·전투 + 성자 치유/정화
+보이는 것: 방패+궁수 콤보, 히트/치유 이펙트
 
-위성 성역(최대 2개) 생성 및 유지비(신앙 상쇄) 로직
+시스템: 피해/저항/상태, 영웅 스킬 2~3, 성자 기적 2종
 
-DoD
+DoD: 소규모 레이드 방어 성공(TTK 6~10s)
 
-성역 반경 미리보기/확장 성공, 성역 밖 건물 배치 거부
+P11 — 시장/교역소 + 가격·재고 게시판 (T1)
+보이는 것: 플립 보드, ▲/▼, 부족 경고 링
 
-몬스터가 성역 경계 밖에서 쏜 투사체 피해 반감 적용
+시스템: economy.json(Base/Desired/Fees), SettlementPrice
 
-3 스프린트: 자원 노드·채집·도로(2주)
-목표: 채집 건물 없이 노드→사람이 캐서→가공 루프 완성
-구현
+DoD: 재고 변동→가격 즉시 반영
 
-노드 모델(숲 capMax1000 regen+2/일, 철광 capMax1000 regen+1/일 등)
+P12 — 계약 & 캐러밴 편성/출발 (T2~T3)
+보이는 것: 계약 카드 타이머, 체결 시 코인 흐름, 수레/노새 적재/출발
 
-일일 재생/안전저수준(20%) & 일일 쿼터로 작업 청크 발행
+시스템: contracts.json, 수수료 정산, 캐러밴 슬롯/구성
 
-벌목/채광/운반 애니메이션 루틴, 창고 입출고
+DoD: 계약→왕복→재고/코인 변동
 
-도로 4종(흙/자갈/판자/석판), 이동속도 계수 적용 & 보수 태스크
+P13 — 노선 점수 & 노선 시각화 (T4)
+보이는 것: 점선 노선(두께=이익, 색=위험), 툴팁(수지/소요)
 
-자동 도로 플래너(선택): 성소/창고↔노드 흐름 기반 노선 추천
+시스템: (Profit-Risk-Time)×EdictTrade, 위험 지도
 
-DoD
+DoD: 전언/도로 변경→노선 선택 즉시 변동
 
-숲/철광 쿼터대로 자동 채집·운반되고 수치가 줄었다가 매일 재생
+P14 — 외부 정착지 & 교역 이벤트 (T5)
+보이는 것: 외부 타운·떠돌이 상단, 초록/빨강 효과
 
-도로 깔면 캐러밴/시민 이동속도가 눈에 띄게 빨라짐
+시스템: 외부 상인 테이블, 덤핑/품귀/세금/약탈 이벤트
 
-4 스프린트: 자율 AI·전언/타겟·직업(2주)
-목표: 플레이어는 방향만, 시민은 스스로 결정
-구현
+DoD: 이벤트에 따른 가격·노선·이익 요동
 
-전역 블랙보드: 재고/생산·소비/위협/작업큐/전언/하드타겟
+P15 — 흐름 레이어 & 통합 쇼케이스 (T6 + 종합)
+보이는 것: 자원/코인 스트림라인, 프리셋 3장면(채집/전시/무역)
 
-유틸리티 점수식: Base×Aptitude×Context×Distance×Risk×Edict×Need×Facility×Fatigue + TargetOrder
+시스템: 텔레메트리 집계, 프리셋 저장/로드
 
-작업 예약/슬롯/타임아웃, 히스테리시스(작업 흔들림 방지)
+DoD: 1~2분 데모로 전체 루프를 한눈에 이해
 
-전언 패널: 분야/태그/강도/TTL, 감쇠
+Ⅲ. 데이터·ECS·검증(실행 규칙)
+A. 데이터 팩 & 스키마
+/data/schema: item/building/node/skill/edict/tech/economy/manifest
 
-타겟 지시: 특정 몬스터/노드/지점 하드 오더
+/data/packs/core: items.json, buildings.json, nodes.json, skills.json, edicts.json, tech.json, economy.json, constants.json
 
-역할 자동 결정/전직(+20%/2분 규칙)
+검증: Ajv/Zod → ID 고유성/참조 무결성/범위 체크, 실패 시 CI 중단
 
-DoD
+B. ECS 핵심 컴포넌트
+C_Human{attrs,derived,traits,aptitudes,skills,role,fatigue,mood,equipment,job}
 
-전언 “채집/마나석” 넣으면 채광 우선이 즉시 눈에 띄게 변함
+C_Sanctum{center,radius,upkeep,rangedMitigation}
 
-타겟 “전투/늑대” 주면 경비/영웅이 먼저 출동
+C_Node{type,capMax,capNow,regenPerDay,slots{soft,hard}}
 
-5 스프린트: 전투·영웅·성역 방어(2주)
-목표: 최소 전투 루프 & 성역 방어 상호작용
-구현
+C_Workplace{workstations{soft,hard},recipes,effects}
 
-영웅 듀오(탱/원/마 중 2), 기본 스킬 2~3개
+C_Edict{domain,tag,mult,ttl,decay} / C_Target{pos|entityId,expires}
 
-몬스터 3계열(야수/요마/언데드) + 정예 1, 간단 레이드 웨이브
+C_Economy{prices,desired,fees} / C_Contract{kind,item,qty,limit,expires}
 
-피해 타입/저항/상태이상(출혈/화상/서리) 기초
+C. 시스템 모듈
+SanctumSystem, FogOfWarSystem, NodeRegenSystem, ReservationSystem, JobPlannerSystem, RoleSystem, EdictSystem, RoadPlannerSystem, CombatSystem, TradeSystem, SaveLoadSystem
 
-성역 내/외 전투 처리 차이, 전시 체제(위협>0.6)
+D. 품질 가드 & 테스트
+성능: Tri < 150k, DrawCalls < 350, 텍스처 < 128MB
 
-성자의 기적 2종 추가(치유의 파동/정화)
+단위: 노드 재생/쿼터, 전언 감쇠, 가격 계산, 성역 경계 페널티
 
-DoD
+통합: 예약 경합, 전시 히스테리시스, 세이브/로드 무결성
 
-야간 레이드에서 성역 경계 효과가 제대로 작동, TTK 목표 충족
+플레이: 20·60·120분 시나리오(생존/방어/위성 성역)
 
-영웅이 시민을 보호하고 보스 미니 이벤트 1회 클리어 가능
-
-6 스프린트: 경제·상인·무역(2주)
-목표: 시장/교역소/캐러밴으로 적자 품목을 메운다
-구현
-
-금고(Coin), SettlementPrice = Base×(1+Scarcity) 수요·공급 변동
-
-시장(Market): 매수/매도 계약(수량/상·하한가/기한), 수수료 5%
-
-교역소(Tradepost): 캐러밴 파견/접수, 노선 선택(이익−위험−시간)
-
-상인 역할/운반수/노새/경비 자동 편성, 도로 계수 적용
-
-전언: 무역/철괴, 무역/식량, 건설/시장, 건설/교역소
-
-DoD
-
-식량/철괴 부족 시 계약이 체결되고 캐러밴이 다녀와 재고가 회복
-
-정산 로그/거래 내역 UI에서 가격/수수료 확인 가능
-
-7 스프린트: UX·세이브/로드·튜토리얼·폴리시(2주)
-목표: 누구나 플레이 가능한 품질선까지 끌어올리기
-구현
-
-세이브/로드(버전드 스냅샷; 노드/성역/도로/전언/재고/AI상태 포함)
-
-튜토리얼: 성역화→건설→채집→도로→전언→전투→무역 흐름
-
-접근성: 색약 모드, UI 스케일, 일시정지/가속, 키 바인딩
-
-성능 튜닝: 오브젝트 풀, Instancing, LOD, Occlusion/Frustum Culling
-
-오디오: BGM 루프 1, SFX 기본(채집/전투/UI), 볼륨 믹서
-
-DoD
-
-첫 실행튜토리얼2시간 플레이가 무리 없이 가능, 1080p 60fps 유지
-
-GH Pages “베타 공개” 링크와 릴리스 노트 배포
-
-공통 작업 스트림(스프린트 전반에 병행)
-데이터 팩: biomes.json, nodes.json, buildings.json, items.json, skills.json, edicts.json, contracts.json
-
-테스트
-
-단위: 노드 재생/쿼터, 전언 감쇠, 가격 계산, 성역 충돌/피해 반감
-
-통합: 작업 예약 경합, 전시 전환 히스테리시스, 세이브/로드 무결성
-
-플레이: 20·60·120분 시나리오(“굶주림 없이 생존”, “레이드 2회 방어”, “위성 성역 창건”)
-
-밸런스 텔레메트리: 생산–소비 그래프, 전언 사용 빈도, 캐러밴 이익, 전투 TTK, 프레임타임/AI틱
-
-아트 파이프라인: 로우폴리(캐릭 800–1.5k tris, 건물 1–3k), 텍스처 512~1k, 애니 12–24fps, 아틀라스화
-
-위험요소 & 대응
-경로탐색 성능: Recast/Detour + 네브메시 구역화, 군중 이동은 steering으로 단순화
-
-AI 스파이크: 유틸리티 캐시/증분 업데이트, 엔티티 평가 분산
-
-웹 메모리/GC: 오브젝트 풀, 컴포넌트 SoA, glTF 재사용, 오디오/텍스처 해제
-
-경제 붕괴: 가격 상한/하한, 계약 만료/패널티, 초기 비축치 보정
-
-난이도 폭주: 레이드 히스테리시스(해제<0.4), 성역 내 세이프존 보장
-
-파일/모듈 구조(요약)
-bash
-복사
-편집
-/src
-  /ecs /systems /components /ai /render /ui /data
-  systems/
-    SanctumSystem.ts, FogOfWarSystem.ts, NodeRegenSystem.ts
-    JobPlannerSystem.ts, EdictSystem.ts, RoleSystem.ts, ReservationSystem.ts
-    RoadPlannerSystem.ts, TradeSystem.ts, CombatSystem.ts, SaveLoadSystem.ts
-  ui/
-    EdictPanel.tsx, TargetPanel.tsx, SanctumPanel.tsx, MarketPanel.tsx, RoadHelper.tsx
-/data (json 템플릿들)
-/assets (gltf, textures, sfx)
-vite.config.ts
-마일스톤 요약 & 체크리스트
-M1(MVP 루프): 성역화, 성역 내 건설, 노드 채집/가공, 도로, 전언/타겟 ✅
-
-M2(전투/방어): 영웅/몬스터/레이드, 성역 방어 규칙, 전시 체제 ✅
-
-M3(경제/무역): 시장/교역소/캐러밴/가격/계약 ✅
-
-M4(출시 준비): 튜토리얼/세이브/성능/오디오/베타 배포 ✅

@@ -1,47 +1,82 @@
 import { getSanctums, setSanctums } from './SanctumSystem';
-import { getBlueprints, clearBlueprints, addBlueprint } from './BlueprintSystem';
+import * as BP from './BlueprintSystem';
 import { getInventory, addItem } from './Inventory';
+import { getRoads, addRoadWithDurability } from './RoadNetwork';
+import { listTargets, addTarget } from './TargetSystem';
+import { getBuildings, addBuilding } from './Buildings';
 
 export interface SaveDataV1 {
   version: 1;
   sanctums: ReturnType<typeof getSanctums>;
-  blueprints: ReturnType<typeof getBlueprints>;
+  blueprints: ReturnType<typeof BP.getBlueprints>;
   inventory: ReturnType<typeof getInventory>;
 }
 
-const KEY = 'pfw_save_v1';
+export interface SaveDataV2 extends Omit<SaveDataV1, 'version'> {
+  version: 2;
+  roads: Array<{ position: [number, number, number]; type: string; durability?: number }>;
+  targets: Array<{ position: [number, number, number] }>;
+  buildings: Array<{ kind: string; position: [number, number, number] }>;
+}
+
+const KEY_V1 = 'pfw_save_v1';
+const KEY_V2 = 'pfw_save_v2';
 
 export function doSave(): void {
-  const data: SaveDataV1 = {
-    version: 1,
+  const data: SaveDataV2 = {
+    version: 2,
     sanctums: getSanctums(),
-    blueprints: getBlueprints(),
+    blueprints: BP.getBlueprints(),
     inventory: getInventory(),
+    roads: getRoads().map((r) => ({ position: r.position, type: r.type as any, durability: r.durability })),
+    targets: listTargets().map((t) => ({ position: t.position })),
+    buildings: getBuildings().map((b) => ({ kind: b.kind as any, position: b.position })),
   };
-  localStorage.setItem(KEY, JSON.stringify(data));
+  localStorage.setItem(KEY_V2, JSON.stringify(data));
 }
 
 export function hasSave(): boolean {
-  return localStorage.getItem(KEY) !== null;
+  return localStorage.getItem(KEY_V2) !== null || localStorage.getItem(KEY_V1) !== null;
 }
 
 export function clearSave(): void {
-  localStorage.removeItem(KEY);
+  localStorage.removeItem(KEY_V2);
+  localStorage.removeItem(KEY_V1);
 }
 
 export function doLoad(): boolean {
-  const raw = localStorage.getItem(KEY);
-  if (!raw) return false;
+  // Try V2 first
+  const raw2 = localStorage.getItem(KEY_V2);
+  if (raw2) {
+    try {
+      const data = JSON.parse(raw2) as SaveDataV2;
+      if (data && data.version === 2) {
+        setSanctums(data.sanctums ?? []);
+        // blueprints
+        BP.clearBlueprints();
+        for (const b of data.blueprints ?? []) BP.addBlueprint?.(b.type as any, b.position as any, (b as any).roadType);
+        // inventory (additive overwrite)
+        for (const [k, v] of Object.entries(data.inventory ?? {})) addItem(k as any, (v as number) - (getInventory() as any)[k]);
+        // roads
+        for (const r of data.roads ?? []) addRoadWithDurability(r.position as any, r.type as any, (r as any).durability ?? 1.0);
+        // targets
+        for (const t of data.targets ?? []) addTarget(t.position as any);
+        // buildings
+        for (const b of data.buildings ?? []) addBuilding(b.kind as any, b.position as any);
+        return true;
+      }
+    } catch {}
+  }
+  // Fallback to V1
+  const raw1 = localStorage.getItem(KEY_V1);
+  if (!raw1) return false;
   try {
-    const data = JSON.parse(raw) as SaveDataV1;
-    if (!data || data.version !== 1) return false;
-    // restore sanctums
-    setSanctums(data.sanctums ?? []);
-    // restore blueprints
-    clearBlueprints();
-    for (const b of data.blueprints ?? []) addBlueprint(b.type as any, b.position as any);
-    // restore inventory (additive overwrite)
-    for (const [k, v] of Object.entries(data.inventory ?? {})) addItem(k as any, (v as number) - (getInventory() as any)[k]);
+    const data1 = JSON.parse(raw1) as SaveDataV1;
+    if (!data1 || data1.version !== 1) return false;
+    setSanctums(data1.sanctums ?? []);
+    BP.clearBlueprints();
+    for (const b of data1.blueprints ?? []) BP.addBlueprint?.(b.type as any, b.position as any, (b as any).roadType);
+    for (const [k, v] of Object.entries(data1.inventory ?? {})) addItem(k as any, (v as number) - (getInventory() as any)[k]);
     return true;
   } catch {
     return false;

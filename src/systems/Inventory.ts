@@ -1,8 +1,12 @@
-export type ItemId = 'Wood' | 'Stone';
+export type ItemId = 'Wood' | 'Stone' | 'Plank' | 'IronIngot' | 'Tool' | 'ResearchPoint';
 
 const inventory: Record<ItemId, number> = {
   Wood: 0,
   Stone: 0,
+  Plank: 0,
+  IronIngot: 0,
+  Tool: 0,
+  ResearchPoint: 0,
 };
 
 export function getInventory(): Readonly<Record<ItemId, number>> {

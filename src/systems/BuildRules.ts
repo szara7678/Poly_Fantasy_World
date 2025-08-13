@@ -19,12 +19,12 @@ function isInsideAnySanctum(pos: [number, number, number]): boolean {
 }
 
 export function canBuild(req: BuildRequest): boolean {
-  if (req.type === 'Road') return true; // 성역 밖에서도 도로 OK
+  if (req.type === 'Road') return !isInsideAnySanctum(req.position); // 도로는 성역 밖에서만 가능
   return isInsideAnySanctum(req.position); // 기타 건축물은 성역 내부만 가능
 }
 
 export function explainBuildRule(req: BuildRequest): string {
-  if (req.type === 'Road') return '도로는 어디든 건설 가능합니다.';
+  if (req.type === 'Road') return isInsideAnySanctum(req.position) ? '성역 내부에서는 도로를 깔 수 없습니다.' : '성역 외부이므로 도로 건설 가능합니다.';
   return isInsideAnySanctum(req.position)
     ? '성역 내부이므로 건설 가능합니다.'
     : '성역 외부이므로 건설할 수 없습니다.';

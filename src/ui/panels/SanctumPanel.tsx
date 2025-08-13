@@ -1,5 +1,5 @@
 import React from 'react';
-import { consecrate, getSanctums, getCooldownRemaining, getCastingRemaining, canStartExpand, expandSanctum } from '../../systems/SanctumSystem';
+import { getSanctums, getCooldownRemaining, getCastingRemaining, canStartExpand, expandSanctum } from '../../systems/SanctumSystem';
 import { getActiveWorld } from '../../ecs';
 import { isVisible, setDebugVisible } from '../../systems/FogOfWarSystem';
 
@@ -11,7 +11,8 @@ export function SanctumPanel(): React.JSX.Element {
     return () => window.removeEventListener('pfw-ui-tick', onTick as EventListener);
   }, []);
   const onConsecrate = (): void => {
-    consecrate([0, 0, 0], 36);
+    // 지도 클릭으로 성역 위치 지정
+    window.dispatchEvent(new CustomEvent('pfw-sanctum-place-request'));
     setCount((c) => c + 1);
   };
   const onToggleFow = (): void => {
@@ -24,9 +25,7 @@ export function SanctumPanel(): React.JSX.Element {
       <h3>성역</h3>
       <div style={{ marginBottom: 6 }}>
         <div>마나: {Math.round(getActiveWorld().player.mana)} / {getActiveWorld().player.manaMax}</div>
-        <button onClick={onConsecrate}>
-          성역화 시전
-        </button>
+        <button onClick={onConsecrate} disabled={getCooldownRemaining() > 0 || getCastingRemaining() > 0}>성역화 위치 지정</button>
         <div style={{ fontSize: 12, opacity: 0.9 }}>
           {getCastingRemaining() > 0 ? `시전 중: ${getCastingRemaining().toFixed(1)}s` : getCooldownRemaining() > 0 ? `쿨타임: ${getCooldownRemaining().toFixed(1)}s` : '준비 완료'}
         </div>

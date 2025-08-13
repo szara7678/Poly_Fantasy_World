@@ -1,15 +1,27 @@
+import * as THREE from 'three';
+import { getHeightAt } from './BiomeSystem';
+import { getRoadSpeedMult } from './ResearchSystem';
+import type { SceneRoot } from '../render/three/SceneRoot';
+
 export type RoadType = 'Dirt' | 'Gravel' | 'Wood' | 'Stone';
 
 export interface RoadTile {
   id: string;
   type: RoadType;
   position: [number, number, number];
+  durability?: number; // 0..1
 }
 
 const roads: RoadTile[] = [];
 
 export function addRoad(position: [number, number, number], type: RoadType = 'Dirt'): RoadTile {
-  const tile: RoadTile = { id: `road_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, position, type };
+  const tile: RoadTile = { id: `road_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, position, type, durability: 1.0 };
+  roads.push(tile);
+  return tile;
+}
+
+export function addRoadWithDurability(position: [number, number, number], type: RoadType, durability: number): RoadTile {
+  const tile: RoadTile = { id: `road_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, position, type, durability: Math.max(0.0, Math.min(1.0, durability)) };
   roads.push(tile);
   return tile;
 }
@@ -26,25 +38,81 @@ export function speedFactorAt(x: number, z: number): number {
     const distSq = dx * dx + dz * dz;
     if (distSq <= 9 * 9) {
       // within 9 units
+      const wear = Math.max(0.6, r.durability ?? 1);
       switch (r.type) {
         case 'Dirt':
-          factor = Math.max(factor, 1.25);
+          factor = Math.max(factor, 1.25 * wear);
           break;
         case 'Gravel':
-          factor = Math.max(factor, 1.4);
+          factor = Math.max(factor, 1.4 * wear);
           break;
         case 'Wood':
-          factor = Math.max(factor, 1.35);
+          factor = Math.max(factor, 1.35 * wear);
           break;
         case 'Stone':
-          factor = Math.max(factor, 1.55);
+          factor = Math.max(factor, 1.55 * wear);
           break;
         default:
           break;
       }
     }
   }
-  return factor;
+  return factor * getRoadSpeedMult();
+}
+
+export function createRoadRenderSystem(scene: SceneRoot) {
+  const group = new THREE.Group();
+  scene.scene.add(group);
+  const meshes: Record<string, THREE.Mesh> = {};
+  (globalThis as any).__pfw_roads = roads;
+
+  function colorFor(type: RoadType): number {
+    switch (type) {
+      case 'Dirt':
+        return 0x8a7a55;
+      case 'Gravel':
+        return 0x9a9a9a;
+      case 'Wood':
+        return 0xb08040;
+      case 'Stone':
+        return 0xcfcfcf;
+      default:
+        return 0xaaaaaa;
+    }
+  }
+
+  return function RoadRenderSystem(): void {
+    // Remove stale
+    for (const id of Object.keys(meshes)) {
+      if (!roads.find((r) => r.id === id)) {
+        const m = meshes[id];
+        group.remove(m);
+        m.geometry.dispose();
+        (m.material as THREE.Material).dispose();
+        delete meshes[id];
+      }
+    }
+    // Ensure meshes for all roads and sync props
+    for (const r of roads) {
+      let m = meshes[r.id];
+      if (!m) {
+        m = new THREE.Mesh(
+          new THREE.BoxGeometry(2.2, 0.08, 2.2),
+          new THREE.MeshBasicMaterial({ color: colorFor(r.type) })
+        );
+        meshes[r.id] = m;
+        group.add(m);
+      }
+      const h = getHeightAt(r.position[0], r.position[2]);
+      const y = (h - 0.5) * 1.2;
+      m.position.set(r.position[0], 0.04 + y, r.position[2]);
+      const mat = m.material as THREE.MeshBasicMaterial;
+      const wear = Math.max(0.6, r.durability ?? 1);
+      mat.color.set(colorFor(r.type));
+      mat.opacity = 0.6 + 0.4 * wear;
+      mat.transparent = true;
+    }
+  };
 }
 
 

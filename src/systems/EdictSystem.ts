@@ -51,4 +51,22 @@ export function EdictSystem(_world: GameWorld, dt: number): void {
   for (let i = edicts.length - 1; i >= 0; i--) if (edicts[i].ttl <= 0) edicts.splice(i, 1);
 }
 
+// 간단 히트맵 샘플러용 API: 특정 태그에 대한 현재 멀티 반환(시각화 목적)
+export function getDomainTagMultiplier(domain: string, tag: string): number {
+  return getMultiplier(domain, tag);
+}
+
+export function getMultiplierDetail(domain: string, tag?: string): { effective: number; unclamped: number; capped: boolean } {
+  let prod = 1.0;
+  for (const e of edicts) {
+    if (e.domain !== domain) continue;
+    if (e.tag && tag && e.tag !== tag) continue;
+    prod *= e.mult;
+  }
+  const eff = Math.min(prod, MAX_TOTAL_MULT);
+  return { effective: eff, unclamped: prod, capped: prod > MAX_TOTAL_MULT };
+}
+
+export function getMaxTotalMult(): number { return MAX_TOTAL_MULT; }
+
 

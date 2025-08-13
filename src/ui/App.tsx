@@ -17,7 +17,28 @@ import { ScoutSystem, createScoutRenderSystem } from '../systems/ScoutSystem';
 import { EdictSystem } from '../systems/EdictSystem';
 import { EdictPanel } from './panels/EdictPanel';
 import { MarketSystem } from '../systems/MarketSystem';
+import { MarketPanel } from './panels/MarketPanel';
+import { createRoadRenderSystem } from '../systems/RoadNetwork';
 import { ProjectileSystem, createProjectileRenderSystem } from '../systems/ProjectileSystem';
+import { TargetPanel } from './panels/TargetPanel';
+import { createTargetRenderSystem } from '../systems/TargetSystem';
+import { BuildPanel } from './panels/BuildPanel';
+import { RoadHelper } from './panels/RoadHelper';
+import { createRoadPreviewRenderSystem } from '../systems/RoadPreviewRender';
+import { CitizenSystem, createCitizenRenderSystem } from '../systems/CitizenSystem';
+import { HUD } from './HUD';
+import { ProductionSystem } from '../systems/ProductionSystem';
+import { createBuildingsRenderSystem } from '../systems/BuildingsRender';
+import { EntityInspector } from './panels/EntityInspector';
+import { ResearchSystem } from '../systems/ResearchSystem';
+import { createEdictHeatmapRenderSystem } from '../systems/EdictHeatmapSystem';
+import { createDemolishSystem } from '../systems/DemolishSystem';
+import { AutoRoadPlannerSystem } from '../systems/AutoRoadPlannerSystem';
+import { MonsterSystem, createMonsterRenderSystem } from '../systems/MonsterSystem';
+import { ResearchPanel } from './panels/ResearchPanel';
+import { LogsPanel } from './panels/LogsPanel';
+import { JobChunkSystem } from '../systems/JobChunkSystem';
+import { createBiomeRenderSystem } from '../systems/BiomeSystem';
 
 export function App(): React.JSX.Element {
   const renderRef = React.useRef<HTMLDivElement | null>(null);
@@ -40,18 +61,33 @@ export function App(): React.JSX.Element {
     loop.addFixedSystem(NodeRegenSystem);
     loop.addFixedSystem(BuildSystem);
     loop.addFixedSystem(ScoutSystem);
+    loop.addFixedSystem(CitizenSystem);
+    loop.addFixedSystem(ProductionSystem);
+    loop.addFixedSystem(ResearchSystem);
+    loop.addFixedSystem(JobChunkSystem);
     loop.addFixedSystem(EdictSystem);
     loop.addFixedSystem(ProjectileSystem);
     loop.addFixedSystem(MarketSystem);
+    loop.addFixedSystem(MonsterSystem);
+    loop.addFixedSystem(AutoRoadPlannerSystem);
     loop.addRenderSystem(createSanctumRenderSystem(scene));
+    loop.addRenderSystem(createBiomeRenderSystem(scene));
     loop.addRenderSystem((_w, _dt) => scene.render());
     loop.addRenderSystem(createFogOfWarRenderSystem(scene));
     loop.addRenderSystem(FogOfWarSystem);
+    loop.addRenderSystem(createEdictHeatmapRenderSystem(scene));
     loop.addRenderSystem(createBuildPreviewSystem(scene));
     loop.addRenderSystem(createBlueprintRenderSystem(scene));
     loop.addRenderSystem(createScoutRenderSystem(scene));
     loop.addRenderSystem(createNodeRenderSystem(scene));
+    loop.addRenderSystem(createRoadRenderSystem(scene));
+    loop.addRenderSystem(createRoadPreviewRenderSystem(scene));
     loop.addRenderSystem(createProjectileRenderSystem(scene));
+    loop.addRenderSystem(createCitizenRenderSystem(scene));
+    loop.addRenderSystem(createBuildingsRenderSystem(scene));
+    loop.addRenderSystem(createTargetRenderSystem(scene));
+    loop.addRenderSystem(createDemolishSystem(scene));
+    loop.addRenderSystem(createMonsterRenderSystem(scene));
     // UI tick: notify panels to re-render with latest data
     loop.addRenderSystem(() => {
       window.dispatchEvent(new CustomEvent('pfw-ui-tick'));
@@ -66,6 +102,7 @@ export function App(): React.JSX.Element {
       const h = Math.max(1, Math.floor(rect.height));
       scene.resize(w, h);
       scene.camera.updateProjectionMatrix();
+      // 낮은 GPU 사양에서도 안정적 FPS 확보
       scene.renderer.setPixelRatio(1);
       scene.renderer.setScissorTest(false);
     };
@@ -89,11 +126,46 @@ export function App(): React.JSX.Element {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 360px', width: '100vw', height: '100vh', overflow: 'hidden' }}>
       <div style={{ position: 'relative', background: '#000', height: '100%', overflow: 'hidden' }} id="render-root" ref={renderRef} />
-      <div style={{ width: 360, padding: 12, background: '#111', color: '#eee', overflow: 'auto', height: '100%' }}>
-        <h2 style={{ marginTop: 0 }}>Polyfantasy</h2>
-        <SanctumPanel />
-        <EdictPanel />
-        <DebugPanel />
+      <div style={{ width: 360, padding: 12, background: '#111', color: '#eee', height: '100%', display: 'grid', gridTemplateRows: 'auto 1fr', minHeight: 0 }}>
+        <div style={{ position: 'sticky', top: 0, background: '#111', zIndex: 2 }}>
+          <h2 style={{ marginTop: 0 }}>Polyfantasy</h2>
+          <HUD />
+        </div>
+        <Tabs />
+        <EntityInspector />
+      </div>
+    </div>
+  );
+}
+
+function Tabs(): React.JSX.Element {
+  const [tab, setTab] = React.useState<'Sanctum' | 'Build' | 'Research' | 'Market' | 'Edict' | 'Targets' | 'Road' | 'Debug' | 'Logs'>('Sanctum');
+  const btn = (k: typeof tab, label: string) => (
+    <button onClick={() => setTab(k)} disabled={tab === k}>{label}</button>
+  );
+  return (
+    <div style={{ display: 'grid', gridTemplateRows: 'auto 1fr', height: '100%', minHeight: 0 }}>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', position: 'sticky', top: 0, background: '#111', zIndex: 2, paddingBottom: 6 }}>
+        {btn('Sanctum', '성역')}
+        {btn('Build', '건설')}
+        {btn('Research', '연구')}
+        {btn('Market', '시장')}
+        {btn('Edict', '전언')}
+        {btn('Targets', '타겟')}
+        {btn('Road', '도로')}
+        {btn('Debug', '디버그')}
+        {btn('Logs', '로그')}
+      </div>
+      <div style={{ overflow: 'auto', minHeight: 0, maxHeight: '100%' }}>
+        {tab === 'Sanctum' && <SanctumPanel />}
+        {tab === 'Build' && <BuildPanel />}
+        {tab === 'Research' && <ResearchPanel />}
+        {tab === 'Market' && <MarketPanel />}
+        {tab === 'Edict' && <EdictPanel />}
+        {tab === 'Targets' && <TargetPanel />}
+        {tab === 'Road' && <RoadHelper />}
+        {tab === 'Debug' && <DebugPanel />}
+        {tab === 'Logs' && <LogsPanel />}
       </div>
     </div>
   );

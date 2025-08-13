@@ -3,6 +3,14 @@
     "Building": { "timeSec": 1.5, "cost": { "Wood": 2 } },
     "Road": { "timeSec": 1.0, "cost": { "Stone": 1 } }
   },
+  "buildings": {
+    "House": { "timeSec": 2.0, "cost": { "Wood": 4 } },
+    "Storage": { "timeSec": 2.5, "cost": { "Wood": 3, "Stone": 1 } },
+    "Lumberyard": { "timeSec": 3.0, "cost": { "Wood": 2, "Stone": 1 } },
+    "Smelter": { "timeSec": 3.5, "cost": { "Stone": 3 } },
+    "Workshop": { "timeSec": 3.0, "cost": { "Wood": 2, "Stone": 2 } },
+    "ResearchLab": { "timeSec": 4.0, "cost": { "Wood": 2, "Stone": 2 } }
+  },
   "roadTypes": {
     "Dirt": { "timeSec": 0.8, "cost": { } },
     "Gravel": { "timeSec": 1.2, "cost": { "Stone": 1 } },

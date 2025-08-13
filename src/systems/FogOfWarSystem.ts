@@ -31,6 +31,14 @@ export function addExploredStroke(points: Array<[number, number]>, radius: numbe
   pendingStrokes.push({ points, radius });
 }
 
+type VisibleStamp = { center: [number, number]; radius: number };
+const pendingVisible: VisibleStamp[] = [];
+
+// 정찰 스윕 등: 중심에서 특정 반경을 일시적으로 Visible(완전 투명) 처리
+export function addVisibleSweep(center: [number, number], radius: number): void {
+  pendingVisible.push({ center, radius });
+}
+
 export function createFogOfWarRenderSystem(scene: SceneRoot) {
   // Canvas-based alpha map: Unseen=0.9, Explored=0.6, Visible=0.0
   const WORLD_SIZE = 400; // covers x,z in [-200,200]
@@ -102,7 +110,7 @@ export function createFogOfWarRenderSystem(scene: SceneRoot) {
   ctx.clearRect(0, 0, WIDTH, HEIGHT);
   texture.needsUpdate = true;
 
-  let exploredDecay = 0.996; // per frame multiplier at ~60fps
+  const EXPLORED_HALF_LIFE_SEC = 7 * 60; // 약 7분 후 절반 정도로 퇴색 (플랜 5~10분 범위)
 
   return function FogOfWarRenderSystem(_world: GameWorld, _dt: number): void {
     const sanctums = getSanctums();
@@ -110,7 +118,8 @@ export function createFogOfWarRenderSystem(scene: SceneRoot) {
     plane.visible = !fog.debugVisible && sanctums.length > 0;
     if (!plane.visible) return;
 
-    // Decay explored toward unseen (fade-in black)
+    // Decay explored toward unseen (fade-in black) — time-based using dt
+    const decay = Math.pow(0.5, Math.max(0, _dt) / EXPLORED_HALF_LIFE_SEC);
     const img = ctx.getImageData(0, 0, WIDTH, HEIGHT);
     const data = img.data;
     for (let i = 0; i < data.length; i += 4) {
@@ -118,7 +127,7 @@ export function createFogOfWarRenderSystem(scene: SceneRoot) {
       const g = data[i];
       // move toward 230 (0.9*255) slowly
       const target = 230;
-      const ng = Math.min(target, Math.round(g * exploredDecay + target * (1 - exploredDecay)));
+      const ng = Math.min(target, Math.round(g * decay + target * (1 - decay)));
       data[i] = data[i + 1] = data[i + 2] = ng;
       // alpha should remain 255 for alphaMap sampling
       data[i + 3] = 255;
@@ -128,6 +137,16 @@ export function createFogOfWarRenderSystem(scene: SceneRoot) {
     while (pendingStrokes.length > 0) {
       const stroke = pendingStrokes.shift()!;
       drawStrokeWorld(stroke.points, stroke.radius, 0.6);
+    }
+
+    // Apply queued visible stamps (e.g., scout fan sweep simplified as a disk)
+    while (pendingVisible.length > 0) {
+      const s = pendingVisible.shift()!;
+      const { u, v } = worldToUV(s.center[0], s.center[1]);
+      const px = Math.floor(u * WIDTH);
+      const py = Math.floor((1 - v) * HEIGHT);
+      const pr = Math.ceil((s.radius / WORLD_SIZE) * WIDTH);
+      drawCircle(px, py, Math.max(1, pr), 0.0);
     }
 
     for (const s of sanctums) {
