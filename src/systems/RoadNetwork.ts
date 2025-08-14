@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { getHeightAt } from './BiomeSystem';
+import { clearPathCache } from './Pathfinding';
 import { getRoadSpeedMult } from './ResearchSystem';
 import type { SceneRoot } from '../render/three/SceneRoot';
 
@@ -59,6 +60,7 @@ export function addRoad(position: [number, number, number], type: RoadType = 'Di
   const tile: RoadTile = { id: `road_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, position, type, durability: 1.0 };
   roads.push(tile);
   addToGrid(tile);
+  try { clearPathCache(); } catch {}
   return tile;
 }
 
@@ -74,6 +76,7 @@ export function addRoadWithDurability(position: [number, number, number], type: 
   const tile: RoadTile = { id: `road_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, position, type, durability: Math.max(0.0, Math.min(1.0, durability)) };
   roads.push(tile);
   addToGrid(tile);
+  try { clearPathCache(); } catch {}
   return tile;
 }
 

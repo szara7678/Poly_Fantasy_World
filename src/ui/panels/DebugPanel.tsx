@@ -9,9 +9,12 @@ import { doSave, hasSave, clearSave, doLoad } from '../../systems/SaveLoadSystem
 import { spawnProjectile, getLastDamage } from '../../systems/ProjectileSystem';
 import { spawnMonster, getMonsterCount } from '../../systems/MonsterSystem';
 import { spawnCitizen, getCitizenCount } from '../../systems/CitizenSystem';
+ 
+import { getDesired as getDesiredStock } from '../../systems/MarketSystem';
 import { listJobChunks, reserveJobChunk, releaseJobChunk } from '../../systems/JobChunkSystem';
 import { getCitizenTop5 } from '../../systems/CitizenSystem';
 import { getSanctums } from '../../systems/SanctumSystem';
+ 
 
 export function DebugPanel(): React.JSX.Element {
   const [fps, setFps] = React.useState(0);
@@ -70,6 +73,34 @@ export function DebugPanel(): React.JSX.Element {
         <button onClick={() => { Workers.setWorkers(Workers.getWorkers() + 1); }} style={{ marginLeft: 6 }}>Worker +1</button>
       </div>
       <div style={{ marginTop: 8 }}>
+        <h4 style={{ margin: '8px 0 4px' }}>목표 재고(Desired) 튜닝</h4>
+        {(() => {
+          const items: Array<{ k: any; label: string; min: number; max: number; step?: number }> = [
+            { k: 'Wood', label: 'Wood', min: 10, max: 150 },
+            { k: 'Stone', label: 'Stone', min: 10, max: 150 },
+            { k: 'Plank', label: 'Plank', min: 10, max: 150 },
+            { k: 'IronIngot', label: 'IronIngot', min: 10, max: 150 },
+            { k: 'Tool', label: 'Tool', min: 5, max: 120 },
+            { k: 'Herb', label: 'Herb', min: 5, max: 120 },
+            { k: 'ManaRaw', label: 'ManaRaw', min: 5, max: 80 },
+            { k: 'ResearchPoint', label: 'ResearchPoint', min: 10, max: 200 },
+          ];
+          return (
+            <div>
+              {items.map(it => (
+                <div key={it.k} style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '4px 0' }}>
+                  <div style={{ width: 140 }}>{it.label}</div>
+                  <input type="range" min={it.min} max={it.max} step={it.step ?? 1} defaultValue={getDesiredStock(it.k)} onChange={(e) => {
+                    try { (window as any).require?.('../../systems/MarketSystem')?.setDesired?.(it.k, parseFloat((e.target as HTMLInputElement).value)); } catch {}
+                  }} style={{ flex: 1 }} />
+                  <div style={{ width: 48, textAlign: 'right' }}>{getDesiredStock(it.k)}</div>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
+      </div>
+      <div style={{ marginTop: 8 }}>
         <button
           onClick={() => {
             // 정찰 경로 예시: 대각선으로 3개 점 찍어 explored 스트로크 추가
@@ -102,14 +133,93 @@ export function DebugPanel(): React.JSX.Element {
         </div>
       </div>
       <div style={{ marginTop: 8 }}>
-        <h4 style={{ margin: '8px 0 4px' }}>작업 청크(채집)</h4>
+        <h4 style={{ margin: '8px 0 4px' }}>작업 청크</h4>
         {listJobChunks().map((c) => (
           <div key={c.id} style={{ fontSize: 12 }}>
-            {c.id} · avail {c.available} · slots {c.reserved}/{c.slots.soft}/{c.slots.hard}
+            {c.id} · type {c.nodeType} · avail {c.available} · slots {c.reserved}/{c.slots.soft}/{c.slots.hard}
+            {c.kind === 'Maintain' && c.reqItem && (
+              <span> · 재료 {c.reqItem}×{c.reqQty}</span>
+            )}
             <button style={{ marginLeft: 6 }} onClick={() => { reserveJobChunk(c.id); force(v => v + 1); }}>예약</button>
             <button style={{ marginLeft: 6 }} onClick={() => { releaseJobChunk(c.id); force(v => v + 1); }}>반납</button>
           </div>
         ))}
+      </div>
+      <div style={{ marginTop: 8 }}>
+        <h4 style={{ margin: '8px 0 4px' }}>작업 우선순위 보드</h4>
+          <div style={{ fontSize: 12, opacity: 0.9 }}>
+            {(() => {
+              const board: Array<{ id: string; value: number; base: { need: number; edict: number; facility: number } }> = (window as any).require?.('../../systems/JobDispatcherSystem')?.getDispatchBoard?.() ?? [];
+              return (board || []).slice(0,10).map((e, i) => {
+                const total = e.base.need * e.base.edict * e.base.facility;
+                const needW = (e.base.need / total) * 100;
+                const edW = (e.base.edict / total) * 100;
+                const facW = (e.base.facility / total) * 100;
+                return (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ minWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.id}</span>
+                    <div style={{ background: '#233', width: 160, height: 8, position: 'relative', display: 'flex' }}>
+                      <div style={{ background: '#6cf', width: `${Math.max(0, Math.min(100, needW))}%`, height: 8 }} title={`Need x${e.base.need.toFixed(2)}`} />
+                      <div style={{ background: '#fc6', width: `${Math.max(0, Math.min(100, edW))}%`, height: 8 }} title={`Edict x${e.base.edict.toFixed(2)}`} />
+                      <div style={{ background: '#6f6', width: `${Math.max(0, Math.min(100, facW))}%`, height: 8 }} title={`Facility x${e.base.facility.toFixed(2)}`} />
+                    </div>
+                    <span>{e.value.toFixed(2)}</span>
+                  </div>
+                );
+              });
+            })()}
+          </div>
+      </div>
+      <div style={{ marginTop: 8 }}>
+        <h4 style={{ margin: '8px 0 4px' }}>경로 파인더(샘플)</h4>
+        <button onClick={() => {
+          try {
+            const cs: any[] = (window as any).__pfw_citizens ?? [];
+            const c0 = cs[0];
+            if (!c0) return;
+            const tgt: [number, number, number] = [c0.pos.x + 40, 0, c0.pos.z + 20];
+            const mod: any = (window as any).require?.('../../systems/Pathfinding');
+            const path = mod?.computePath?.([c0.pos.x, c0.pos.z], [tgt[0], tgt[2]], 48, 4);
+            (window as any).__pfw_path_debug = path;
+            (window as any).__pfw_path_debug_on = true;
+          } catch {}
+        }}>샘플 경로 계산(콘솔)</button>
+        <button style={{ marginLeft: 6 }} onClick={() => { (window as any).__pfw_path_debug_on = !(window as any).__pfw_path_debug_on; }}>표시 토글</button>
+        <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 6, alignItems: 'center', marginTop: 6 }}>
+          <span style={{ fontSize: 12 }}>도로 가중</span>
+          <input type="range" min={0.2} max={3} step={0.1} defaultValue={1} onChange={(e) => { try { (window as any).require?.('../../systems/Pathfinding')?.setPFParams?.({ roadWeight: parseFloat((e.target as HTMLInputElement).value) }); } catch {} }} />
+          <span style={{ fontSize: 12 }}>위험 강</span>
+          <input type="range" min={4} max={24} step={1} defaultValue={8} onChange={(e) => { try { (window as any).require?.('../../systems/Pathfinding')?.setPFParams?.({ dangerStrong: parseFloat((e.target as HTMLInputElement).value) }); } catch {} }} />
+          <span style={{ fontSize: 12 }}>위험 약</span>
+          <input type="range" min={8} max={48} step={1} defaultValue={16} onChange={(e) => { try { (window as any).require?.('../../systems/Pathfinding')?.setPFParams?.({ dangerWeak: parseFloat((e.target as HTMLInputElement).value) }); } catch {} }} />
+          <span style={{ fontSize: 12 }}>경사 바이어스</span>
+          <input type="range" min={-10} max={10} step={1} defaultValue={0} onChange={(e) => { try { (window as any).require?.('../../systems/Pathfinding')?.setPFParams?.({ slopeBiasDeg: parseFloat((e.target as HTMLInputElement).value) }); } catch {} }} />
+        </div>
+      </div>
+      <div style={{ marginTop: 8 }}>
+        <h4 style={{ margin: '8px 0 4px' }}>작업 가중치 파라미터(JWeight)</h4>
+        {(() => {
+          // 간이 파라미터: 전언 영향 지수, 시설 보너스, 수요 민감도
+          const p = (window as any).__pfw_dispatch_params || ((window as any).__pfw_dispatch_params = { edictPower: 1.0, facilityBonus: 1.05, needScale: 1.0 });
+          const entries: Array<{ key: keyof typeof p; min: number; max: number; step?: number }> = [
+            { key: 'edictPower', min: 0, max: 2, step: 0.05 },
+            { key: 'facilityBonus', min: 1, max: 1.3, step: 0.01 },
+            { key: 'needScale', min: 0.5, max: 2, step: 0.05 },
+          ];
+          return (
+            <div>
+              {entries.map((e) => (
+                <div key={String(e.key)} style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '4px 0' }}>
+                  <div style={{ width: 200 }}>{String(e.key)}</div>
+                  <input type="range" min={e.min} max={e.max} step={e.step ?? 0.01} value={p[e.key]}
+                    onChange={(ev) => { try { (window as any).__pfw_dispatch_params = { ...p, [e.key]: parseFloat((ev.target as HTMLInputElement).value) }; } catch {} force(x=>x+1); }}
+                    style={{ flex: 1 }} />
+                  <div style={{ width: 64, textAlign: 'right' }}>{Number(p[e.key]).toFixed(2)}</div>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
       </div>
       <div style={{ marginTop: 8 }}>
         <h4 style={{ margin: '8px 0 4px' }}>우선순위(샘플 Top-5)</h4>

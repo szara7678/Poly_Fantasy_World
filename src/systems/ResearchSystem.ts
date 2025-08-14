@@ -75,11 +75,39 @@ export function purchase(up: UpgradeDef): boolean {
   // consume integer RP
   if (!consume('ResearchPoint' as any, up.costRP)) return false;
   up.apply();
+  try {
+    // Road slope changes/path speed changes affect PF cache; clear if present
+    (require('./Pathfinding') as any).clearPathCache?.();
+  } catch {}
   return true;
 }
 
 export function ResearchSystem(_world: GameWorld, _dt: number): void {
   // placeholder for timed research if needed later
+}
+
+// Snapshot API for Save/Load
+export interface ResearchSnapshot {
+  maxSanctumsBonus: number;
+  roadSpeedMult: number;
+  sanctumRadiusMult: number;
+  sanctumUpkeepMult: number;
+  marketFee: number;
+  maxRoadSlopeDeg: number;
+}
+
+export function getResearchSnapshot(): ResearchSnapshot {
+  return { ...rs };
+}
+
+export function applyResearchSnapshot(s: Partial<ResearchSnapshot>): void {
+  if (!s) return;
+  if (typeof s.maxSanctumsBonus === 'number') rs.maxSanctumsBonus = s.maxSanctumsBonus;
+  if (typeof s.roadSpeedMult === 'number') rs.roadSpeedMult = s.roadSpeedMult;
+  if (typeof s.sanctumRadiusMult === 'number') rs.sanctumRadiusMult = s.sanctumRadiusMult;
+  if (typeof s.sanctumUpkeepMult === 'number') rs.sanctumUpkeepMult = s.sanctumUpkeepMult;
+  if (typeof s.marketFee === 'number') rs.marketFee = s.marketFee;
+  if (typeof s.maxRoadSlopeDeg === 'number') rs.maxRoadSlopeDeg = s.maxRoadSlopeDeg;
 }
 
 

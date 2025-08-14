@@ -1,4 +1,4 @@
-export type BuildingKind = 'House' | 'Storage' | 'Lumberyard' | 'Smelter' | 'Workshop' | 'ResearchLab';
+export type BuildingKind = 'House' | 'Storage' | 'Lumberyard' | 'Smelter' | 'Workshop' | 'ResearchLab' | 'Herbalist';
 
 export interface Building {
   id: string;
@@ -52,6 +52,14 @@ export function setBuildingActive(id: string, active: boolean): boolean {
 export function isBuildingActive(id: string): boolean {
   const b = buildings.find(x => x.id === id);
   return b ? (b.active ?? true) : false;
+}
+
+export function setBuildingLevel(id: string, level: number): boolean {
+  const b = buildings.find(x => x.id === id);
+  if (!b) return false;
+  const lv = Math.max(1, Math.min(5, Math.floor(level)));
+  b.level = lv;
+  return true;
 }
 
 

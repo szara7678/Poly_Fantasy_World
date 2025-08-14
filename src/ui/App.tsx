@@ -36,11 +36,14 @@ import { SanctumStatsPanel } from './panels/SanctumStatsPanel';
 import { createEdictHeatmapRenderSystem } from '../systems/EdictHeatmapSystem';
 import { createDemolishSystem } from '../systems/DemolishSystem';
 import { AutoRoadPlannerSystem } from '../systems/AutoRoadPlannerSystem';
+import { createPathDebugRenderSystem } from '../systems/Pathfinding';
 import { MonsterSystem, createMonsterRenderSystem } from '../systems/MonsterSystem';
 import { ResearchPanel } from './panels/ResearchPanel';
 import { LogsPanel } from './panels/LogsPanel';
 import { JobChunkSystem } from '../systems/JobChunkSystem';
 import { createBiomeRenderSystem } from '../systems/BiomeSystem';
+ 
+import { JobDispatcherSystem } from '../systems/JobDispatcherSystem';
 
 export function App(): React.JSX.Element {
   const renderRef = React.useRef<HTMLDivElement | null>(null);
@@ -73,6 +76,8 @@ export function App(): React.JSX.Element {
     loop.addFixedSystem(MarketSystem);
     loop.addFixedSystem(MonsterSystem);
     loop.addFixedSystem(AutoRoadPlannerSystem);
+    // Central job dispatcher (role-less scheduling)
+    loop.addFixedSystem(JobDispatcherSystem);
     loop.addRenderSystem(createSanctumRenderSystem(scene));
     loop.addRenderSystem(createBiomeRenderSystem(scene));
     loop.addRenderSystem((_w, _dt) => scene.render());
@@ -92,6 +97,7 @@ export function App(): React.JSX.Element {
     loop.addRenderSystem(createTargetRenderSystem(scene));
     loop.addRenderSystem(createSaintRenderSystem(scene));
     loop.addRenderSystem(createDemolishSystem(scene));
+    loop.addRenderSystem(createPathDebugRenderSystem(scene));
     loop.addRenderSystem(createMonsterRenderSystem(scene));
     // UI tick: notify panels to re-render with latest data
     loop.addRenderSystem(() => {

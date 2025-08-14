@@ -71,6 +71,20 @@ export function spawnMonster(kind: Monster['kind'] = 'Wolf', posOpt?: THREE.Vect
   monsters.push(m);
 }
 
+// Save/Load snapshots (minimal): kind, x, z, hp
+export interface MonsterSnapshot { kind: Monster['kind']; x: number; z: number; hp: number; }
+export function getMonsterSnapshots(): MonsterSnapshot[] {
+  return monsters.map(m => ({ kind: m.kind, x: m.pos.x, z: m.pos.z, hp: m.hp }));
+}
+export function applyMonsterSnapshots(list: MonsterSnapshot[]): void {
+  monsters.length = 0;
+  for (const s of list) {
+    const pos = new THREE.Vector3(s.x, 0, s.z);
+    spawnMonster(s.kind, pos);
+    monsters[monsters.length - 1].hp = s.hp;
+  }
+}
+
 let accum = 0;
 export function MonsterSystem(_world: GameWorld, dt: number): void {
   accum += dt;
@@ -144,6 +158,16 @@ export function MonsterSystem(_world: GameWorld, dt: number): void {
     }
     if (desired.lengthSq() > 1e-4) desired.normalize();
     m.vel.copy(desired.multiplyScalar(m.speed));
+    // path cache coherence: heavy monster movement can stale cached paths; throttle clear
+    try {
+      const store: any = (globalThis as any);
+      store.__pfw_pf_acc = (store.__pfw_pf_acc ?? 0) + dt;
+      if (store.__pfw_pf_acc > 8) {
+        store.__pfw_pf_acc = 0;
+        const mod: any = (window as any).require?.('./Pathfinding');
+        mod?.clearPathCache?.();
+      }
+    } catch {}
     // 이동 시 성역 경계 내부 진입 금지: 경계에 닿으면 바깥으로 밀어냄
     const proposed = m.pos.clone().addScaledVector(m.vel, dt);
     for (const s of sanctums) {

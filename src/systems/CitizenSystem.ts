@@ -3,24 +3,19 @@ import type { GameWorld } from '../ecs';
 import type { SceneRoot } from '../render/three/SceneRoot';
 import { getSanctums } from './SanctumSystem';
 import { speedFactorAt } from './RoadNetwork';
+import { computePathSmart } from './Pathfinding';
 import { addExploredStroke, addVisibleSector } from './FogOfWarSystem';
-function isWorldVisibleLazy(x: number, z: number): boolean {
-  try {
-    const mod: any = (window as any).require?.('../systems/FogOfWarSystem');
-    const fn = mod?.isWorldVisible as ((x:number,z:number)=>boolean) | undefined;
-    return fn ? fn(x, z) : true;
-  } catch { return true; }
-}
 import { listTargets } from './TargetSystem';
 import { tryConsumeFromNodeAt, getNodes, releaseNodeSlot, pruneNodeReservations } from './NodeRegenSystem';
 import { listJobChunks, reserveJobChunk, releaseJobChunk, effectiveWorkersFor, getJobChunk } from './JobChunkSystem';
+ 
+import { getDispatchAssignment } from './JobDispatcherSystem';
 import { getRoads } from './RoadNetwork';
-import { addItem, getQty } from './Inventory';
+import { addItem, getQty, canConsume, consume } from './Inventory';
 import { getMultiplier } from './EdictSystem';
-import { getThreat, damageNearestMonster, getMonsters } from './MonsterSystem';
-import * as BP from './BlueprintSystem';
+import { getThreat, getMonsters } from './MonsterSystem';
 import { getBuildingsByKind, getBuildings } from './Buildings';
-import type { BuildingKind } from './Buildings';
+ 
 
 type TraitId = 'Diligent' | 'Coward' | 'Pious' | 'NightOwl' | 'Dexterous' | 'Indomitable';
 
@@ -32,7 +27,7 @@ interface DerivedStats {
   HP: number; Stamina: number; Mana: number; Carry: number; Move: number;
 }
 
-type RoleId = 'Worker' | 'Guard' | 'Lumberjack' | 'Miner' | 'Builder' | 'Researcher' | 'Explorer';
+type RoleId = 'Guard' | 'Lumberjack' | 'Miner' | 'Builder' | 'Researcher' | 'Explorer' | 'Carpenter' | 'Smith' | 'Artisan' | 'Herbalist' | 'Acolyte';
 
 interface Citizen {
   id: string;
@@ -40,12 +35,10 @@ interface Citizen {
   vel: THREE.Vector3;
   target: THREE.Vector3;
   lastStroke: THREE.Vector3;
-  state: 'Idle' | 'ToNode' | 'ToSanctum';
-  carry: { item: 'Wood' | 'Stone' | null; qty: number; capacity: number };
+  state: 'Idle' | 'ToNode' | 'WorkingGather' | 'WorkingMaintain' | 'Assist' | 'ToSanctum' | 'ToSupply';
+  carry: { item: 'Wood' | 'Stone' | 'Herb' | 'ManaRaw' | null; qty: number; capacity: number };
   nodeTargetId: string | null;
-  role: RoleId;
-  roleCandidate?: RoleId;
-  roleCandidateTimer?: number;
+  role: RoleId; // legacy field (ignored by role-less scheduling)
   fatigue: number; // 0.0 ~ 1.0
   aptitude: { Forest: number; IronMine: number; Hunt: number; Farm: number; Herd: number; Craft: number; Smith: number; Build: number; Alchemy: number; Heal: number; Research: number; Combat: number; Trade: number };
   traits: TraitId[];
@@ -65,10 +58,16 @@ interface Citizen {
   hasInitialRole?: boolean;
   exploreTarget?: THREE.Vector3;
   exploreTimer?: number;
+  detourTarget?: THREE.Vector3;
+  detourTimer?: number;
+  stuckTimer?: number;
+  pathEvalTimer?: number;
+  equipment?: { tool?: 'Axe' | 'Pick' | 'Hammer' };
 }
 
 const citizens: Citizen[] = [];
 export function getCitizens(): ReadonlyArray<Citizen> { return citizens; }
+try { (globalThis as any).__pfw_citizens = citizens; } catch {}
 // 우선순위 디버거용: 시민별 Top-5 작업 스냅샷
 type TopEntry = { id: string; score: number };
 const citizenTop5: Map<string, TopEntry[]> = new Map();
@@ -106,7 +105,7 @@ export function spawnCitizen(count = 3): void {
     if (Math.random() < 0.9) traits.push(traitPool[Math.floor(Math.random() * traitPool.length)]);
     if (Math.random() < 0.4) traits.push(traitPool[Math.floor(Math.random() * traitPool.length)]);
     const carryCap = Math.max(1, Math.floor(derived.Carry / 10));
-    citizens.push({ id: `cz_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, pos, vel: new THREE.Vector3(), target: tgt, lastStroke: pos.clone(), state: 'Idle', carry: { item: null, qty: 0, capacity: carryCap }, nodeTargetId: null, role: 'Worker', roleCandidate: undefined, roleCandidateTimer: 0, fatigue: 0, aptitude: {
+    citizens.push({ id: `cz_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, pos, vel: new THREE.Vector3(), target: tgt, lastStroke: pos.clone(), state: 'Idle', carry: { item: null, qty: 0, capacity: carryCap }, nodeTargetId: null, role: 'Builder', fatigue: 0, aptitude: {
       Forest: 0.9 + Math.random() * 0.4,
       IronMine: 0.9 + Math.random() * 0.4,
       Hunt: 0.8 + Math.random() * 0.6,
@@ -120,7 +119,40 @@ export function spawnCitizen(count = 3): void {
       Research: 0.7 + Math.random() * 0.6,
       Combat: 0.8 + Math.random() * 0.6,
       Trade: 0.7 + Math.random() * 0.6,
-    }, traits, stats, derived, thinkTimer: 0, hp: derived.HP, atk: 6 + Math.floor(stats.STR / 4), range: 1.5, atkCd: 0, combatXp: 0, spawnSec: performance.now() / 1000, hasInitialRole: false });
+    }, traits, stats, derived, thinkTimer: 0, hp: derived.HP, atk: 6 + Math.floor(stats.STR / 4), range: 1.5, atkCd: 0, combatXp: 0, spawnSec: performance.now() / 1000, hasInitialRole: false, equipment: { tool: Math.random() < 0.5 ? 'Axe' : (Math.random() < 0.5 ? 'Pick' : undefined) } });
+  }
+}
+
+// Save/Load snapshots (minimal, prototype): position (x,z), role, carry, fatigue
+export interface CitizenSnapshot {
+  x: number; z: number; role: RoleId; carry?: { item: 'Wood' | 'Stone' | 'Herb' | 'ManaRaw' | null; qty: number }; fatigue: number;
+}
+
+export function getCitizenSnapshots(): CitizenSnapshot[] {
+  return citizens.map(c => ({ x: c.pos.x, z: c.pos.z, role: c.role, carry: { item: c.carry.item, qty: c.carry.qty }, fatigue: c.fatigue }));
+}
+
+export function applyCitizenSnapshots(list: CitizenSnapshot[]): void {
+  // Clear and repopulate with fresh citizens at given positions/roles
+  citizens.length = 0;
+  for (const s of list) {
+    const pos = new THREE.Vector3(s.x, 0, s.z);
+    const tgt = pos.clone().add(new THREE.Vector3((Math.random()-0.5)*6, 0, (Math.random()-0.5)*6));
+    const stats: Stats = { STR: 10, DEX: 10, INT: 10, VIT: 10, WIS: 10, CHA: 10 };
+    const derived: DerivedStats = { HP: 50 + stats.VIT * 10, Stamina: 50 + (stats.STR + stats.DEX) * 5, Mana: 30 + (stats.INT + stats.WIS) * 8, Carry: 20 + stats.STR * 2, Move: 3.5 * (1 + stats.DEX / 50) };
+    const carryCap = Math.max(1, Math.floor(derived.Carry / 10));
+    const carryQty = Math.min(carryCap, Math.max(0, s.carry?.qty ?? 0));
+    const c: Citizen = {
+      id: `cz_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      pos, vel: new THREE.Vector3(), target: tgt, lastStroke: pos.clone(),
+      state: 'Idle', carry: { item: (s.carry?.item ?? null) as any, qty: carryQty, capacity: carryCap }, nodeTargetId: null,
+      role: s.role,
+      fatigue: Math.max(0, Math.min(1, s.fatigue)),
+      aptitude: { Forest: 1, IronMine: 1, Hunt: 1, Farm: 1, Herd: 1, Craft: 1, Smith: 1, Build: 1, Alchemy: 1, Heal: 1, Research: 1, Combat: 1, Trade: 1 },
+      traits: [], stats, derived, thinkTimer: 0, hp: derived.HP, atk: 6, range: 1.5, atkCd: 0, combatXp: 0,
+      spawnSec: performance.now() / 1000, hasInitialRole: true,
+    };
+    citizens.push(c);
   }
 }
 
@@ -169,130 +201,6 @@ export function CitizenSystem(_world: GameWorld, dt: number): void {
   // 예약 타임아웃 정리
   pruneNodeReservations();
   const threat = getThreat();
-  // 중앙 계획 기반 역할 배분 (초기/주기적 강제 배치 포함)
-  type StaffingPlan = { Guard: number; Lumberjack: number; Miner: number; Builder: number; Researcher: number; Explorer: number; Worker: number };
-  function clamp(n: number, a: number, b: number): number { return Math.min(b, Math.max(a, n)); }
-  const pop = citizens.length;
-  const bpCount = ((globalThis as any).__pfw_blueprints as any[])?.length ?? 0;
-  const desired = { Wood: 50, Stone: 50, RP: 50 };
-  const stock = { Wood: (getQty as any)('Wood') ?? 0, Stone: (getQty as any)('Stone') ?? 0, RP: (getQty as any)('ResearchPoint') ?? 0 };
-  const scarcity = {
-    Wood: clamp((desired.Wood - stock.Wood) / Math.max(1, desired.Wood), 0, 1),
-    Stone: clamp((desired.Stone - stock.Stone) / Math.max(1, desired.Stone), 0, 1),
-    RP: clamp((desired.RP - stock.RP) / Math.max(1, desired.RP), 0, 1),
-  };
-  const labs = getBuildingsByKind('ResearchLab' as any).length;
-  // 초깃값(비율 기반)
-  let target: StaffingPlan = {
-    Guard: Math.round(pop * clamp(threat * 0.6, 0.0, 0.35)),
-    Lumberjack: Math.round(pop * clamp(0.12 + 0.25 * scarcity.Wood, 0.05, 0.4)),
-    Miner: Math.round(pop * clamp(0.10 + 0.25 * scarcity.Stone, 0.05, 0.4)),
-    Builder: Math.round(Math.min(pop * 0.25, bpCount * 0.7)),
-    Researcher: labs > 0 ? Math.round(pop * clamp(0.04 + 0.15 * scarcity.RP, 0, 0.25)) : 0,
-    Explorer: Math.round(pop * 0.1),
-    Worker: 0,
-  };
-  // 위협이 낮으면 가드 최소 0, 위협이 있으면 최소 1
-  if (threat > 0.2) target.Guard = Math.max(1, target.Guard);
-  // 합계 보정
-  const sum = target.Guard + target.Lumberjack + target.Miner + target.Builder + target.Researcher + target.Explorer;
-  if (sum > pop) {
-    const scale = pop / Math.max(1, sum);
-    target.Guard = Math.floor(target.Guard * scale);
-    target.Lumberjack = Math.floor(target.Lumberjack * scale);
-    target.Miner = Math.floor(target.Miner * scale);
-    target.Builder = Math.floor(target.Builder * scale);
-    target.Researcher = Math.floor(target.Researcher * scale);
-    target.Explorer = Math.floor(target.Explorer * scale);
-  }
-  target.Worker = Math.max(0, pop - (target.Guard + target.Lumberjack + target.Miner + target.Builder + target.Researcher + target.Explorer));
-  // 시민 적합도 매트릭스
-  function fitScore(c: Citizen, role: RoleId): number {
-    const fatigue = 1 - c.fatigue;
-    let s = 1.0;
-    if (role === 'Guard') {
-      s = ((c.stats?.STR ?? 10) / 10) * (1 + (c.aptitude?.Combat ?? 1) * 0.3) * (c.traits?.includes('Indomitable') ? 1.1 : 1.0) * (c.traits?.includes('Coward') ? 0.85 : 1.0);
-    } else if (role === 'Lumberjack') {
-      s = (c.aptitude?.Forest ?? 1) * (((c.stats?.STR ?? 10) + (c.stats?.DEX ?? 10)) / 20) * (c.traits?.includes('Diligent') ? 1.05 : 1.0);
-    } else if (role === 'Miner') {
-      s = (c.aptitude?.IronMine ?? 1) * (((c.stats?.STR ?? 10) + (c.stats?.VIT ?? 10)) / 20) * (c.traits?.includes('Diligent') ? 1.05 : 1.0);
-    } else if (role === 'Builder') {
-      s = (c.aptitude?.Build ?? 1) * (((c.stats?.STR ?? 10) + (c.stats?.DEX ?? 10)) / 20) * (c.traits?.includes('Dexterous') ? 1.05 : 1.0);
-    } else if (role === 'Researcher') {
-      s = (c.aptitude?.Research ?? 1) * (((c.stats?.INT ?? 10) + (c.stats?.WIS ?? 10)) / 20) * (c.traits?.includes('Pious') ? 1.05 : 1.0);
-    } else if (role === 'Explorer') {
-      s = (((c.stats?.DEX ?? 10) + (c.stats?.WIS ?? 10)) / 20) * (c.traits?.includes('NightOwl') ? 1.05 : 1.0);
-    } else {
-      s = 1.0;
-    }
-    // 현재 동일 역할 유지시 작은 보너스(안정성)
-    if (c.role === role) s *= 1.08;
-    return s * fatigue;
-  }
-  function nodeAptKey(nodeType: string): keyof Citizen['aptitude'] | undefined {
-    if (nodeType === 'Forest') return 'Forest';
-    if (nodeType === 'IronMine') return 'IronMine';
-    if (nodeType === 'HerbPatch') return 'Alchemy';
-    if (nodeType === 'ManaSpring') return 'Research';
-    return undefined as any;
-  }
-  // 역할별 할당
-  const roles: RoleId[] = ['Guard', 'Lumberjack', 'Miner', 'Builder', 'Researcher', 'Explorer', 'Worker'];
-  const desiredList: Array<{ role: RoleId; count: number }> = [
-    { role: 'Guard', count: target.Guard },
-    { role: 'Lumberjack', count: target.Lumberjack },
-    { role: 'Miner', count: target.Miner },
-    { role: 'Builder', count: target.Builder },
-    { role: 'Researcher', count: target.Researcher },
-    { role: 'Explorer', count: target.Explorer },
-    { role: 'Worker', count: target.Worker },
-  ];
-  const unpicked = new Set(citizens.map(c => c.id));
-  const planAssignment = new Map<string, RoleId>();
-  for (const { role, count } of desiredList) {
-    if (count <= 0) continue;
-    // 남은 시민 중 해당 역할 적합도 순으로 선발
-    const sorted = citizens
-      .filter(c => unpicked.has(c.id))
-      .map(c => ({ c, s: fitScore(c, role) }))
-      .sort((a, b) => b.s - a.s);
-    for (let i = 0; i < Math.min(count, sorted.length); i++) {
-      const id = sorted[i].c.id;
-      planAssignment.set(id, role);
-      unpicked.delete(id);
-    }
-  }
-  // 히스테리시스 적용 + 초기 배치: 스폰 5초 이내에는 더 짧은 히스테리시스로 빠르게 배치
-  for (const c of citizens) {
-    const want = planAssignment.get(c.id) ?? 'Worker';
-    if (c.role !== want) {
-      if (c.roleCandidate !== want) { c.roleCandidate = want; c.roleCandidateTimer = 0; }
-      else {
-        c.roleCandidateTimer = (c.roleCandidateTimer ?? 0) + dt;
-        const age = (performance.now() / 1000) - (c.spawnSec ?? 0);
-        const hysteresis = age < 5 ? 5 : 60; // 스폰 직후 5초, 이후엔 60초
-        if ((c.roleCandidateTimer ?? 0) >= hysteresis) {
-          const prev = c.role;
-          c.role = want;
-          c.roleCandidate = undefined;
-          c.roleCandidateTimer = 0;
-          try { window.dispatchEvent(new CustomEvent('pfw-ui-log', { detail: { category: 'Citizen', text: `역할 배치: ${prev} → ${want}` } })); } catch {}
-        }
-      }
-    } else {
-      c.roleCandidate = undefined; c.roleCandidateTimer = 0;
-    }
-  }
-  // 스폰 직후 모두 Worker로 보이는 현상 완화: 초기 한 번 즉시 반영 플래그
-  for (const c of citizens) {
-    if (!c.hasInitialRole) {
-      const want = planAssignment.get(c.id) ?? c.role;
-      c.role = want;
-      c.hasInitialRole = true;
-    }
-  }
-  try { (globalThis as any).__pfw_staffing_plan = { target, current: roles.reduce((m, r) => (m[r] = citizens.filter(c => c.role === r).length, m), {} as any) }; } catch {}
-  try { (globalThis as any).__pfw_roles = roles.reduce((m, r) => (m[r] = citizens.filter(c => c.role === r).length, m), {} as any); } catch {}
   for (const c of citizens) {
     // 상태 전이: Idle -> ToNode (가까운 노드 선택), ToNode에서 도착 시 채집, ToSanctum에서 도착 시 납품
     const sanctum = getSanctums()[0];
@@ -315,212 +223,20 @@ export function CitizenSystem(_world: GameWorld, dt: number): void {
       }
       return best;
     }
-
-    if (c.role === 'Guard') {
-      // 경비 고도화: 상태 기반(Patrol/Chase/Escort/Heal)
-      c.guardTimer = Math.max(0, (c.guardTimer ?? 0) - dt);
-      const sanctum = getSanctums()[0];
-      const center = sanctum ? new THREE.Vector3(sanctum.center[0], 0, sanctum.center[2]) : new THREE.Vector3(0, 0, 0);
-      const mons = getMonsters();
-      // 주변 위협 스캔(25m)
-      let tgtM: { x: number; z: number } | null = null;
-      let bestD = Infinity;
-      for (const m0 of mons) {
-        const d = Math.hypot(m0.pos.x - c.pos.x, m0.pos.z - c.pos.z);
-        if (d < 25 && d < bestD) { bestD = d; tgtM = { x: m0.pos.x, z: m0.pos.z }; }
-      }
-      // 부상 시민 호위/치유 우선(가까운 시민 HP 낮음)
-      let lowCitizen: any = null; let lowD = Infinity;
-      for (const cc of citizens) {
-        const hp = cc.hp ?? cc.derived.HP;
-        if (hp <= 0) continue;
-        if (hp < (cc.derived.HP * 0.5)) {
-          const d = Math.hypot(cc.pos.x - c.pos.x, cc.pos.z - c.pos.z);
-          if (d < 18 && d < lowD) { lowD = d; lowCitizen = cc; }
-        }
-      }
-      // 모드 전환 우선순위: Chase(위협) > Escort(부상 시민) > Patrol
-      if (tgtM) c.guardMode = 'Chase';
-      else if (lowCitizen) c.guardMode = 'Escort';
-      else if (!c.guardMode || c.guardTimer <= 0) { c.guardMode = 'Patrol'; c.guardTimer = 6 + Math.random() * 6; }
-
-      if (c.guardMode === 'Chase' && tgtM) {
-        // 약간의 예측 사격: 목표 방향으로 소폭 리드
-        const lead = 0.6;
-        const to = new THREE.Vector3(tgtM.x, 0, tgtM.z);
-        c.target.copy(to.multiplyScalar(1 + 0.0).add(new THREE.Vector3((Math.random()-0.5)*lead, 0, (Math.random()-0.5)*lead)));
-      } else if (c.guardMode === 'Escort' && lowCitizen) {
-        // 부상 시민 근처를 원형으로 호위(거리 2.5m)
-        const ang = performance.now() / 1000 + parseInt(c.id.slice(-2), 36);
-        const r = 2.5;
-        c.target.set(lowCitizen.pos.x + Math.cos(ang) * r, 0, lowCitizen.pos.z + Math.sin(ang) * r);
-      } else {
-        // 성역 경계 순찰: 3~5개 웨이포인트를 천천히 순환
-        const phase = (c.guardPatrolPhase ?? 0) + dt * 0.2;
-        c.guardPatrolPhase = phase % (Math.PI * 2);
-        const r = sanctum ? sanctum.radius + 4 : 20;
-        const ang = c.guardPatrolPhase + (parseInt(c.id.slice(-2), 36) % 10) * 0.4;
-        c.target.set(center.x + Math.cos(ang) * r, 0, center.z + Math.sin(ang) * r);
-      }
-      // 공격 처리 및 경험치
-      c.atkCd = Math.max(0, (c.atkCd ?? 0) - dt);
-      if ((c.atkCd ?? 0) <= 0) {
-        const ok = damageNearestMonster(c.pos.x, c.pos.z, c.atk ?? 6, c.range ?? 1.5);
-        if (ok) {
-          c.atkCd = 0.85;
-          c.combatXp = (c.combatXp ?? 0) + 1;
-          if ((c.combatXp ?? 0) % 7 === 0) { c.atk = (c.atk ?? 6) + 1; }
-        }
-      }
-    } else if (c.role === 'Builder') {
-      // 건설 보조: 가까운 청사진 주변을 왕복하며 빌드 보너스 제공
-      const bps = BP.getBlueprints();
-      // 필수 체인 건물 자가 청사진 생성(부족 시)
-      const need = {
-        Plank: (getQty as any)('Plank') ?? 0,
-        IronIngot: (getQty as any)('IronIngot') ?? 0,
-        Tool: (getQty as any)('Tool') ?? 0,
-        ResearchPoint: (getQty as any)('ResearchPoint') ?? 0,
-      };
-      const hasBpKind = (k: BuildingKind) => bps.some((b: any) => b.type === 'Building' && b.buildingKind === k);
-      const hasKind = (k: BuildingKind) => getBuildingsByKind(k).length > 0;
-      const sanc = getSanctums()[0];
-      const placeNear = (k: BuildingKind) => {
-        if (!sanc) return;
-        const existing = getBuildingsByKind(k).length + bps.filter((b: any) => b.buildingKind === k).length;
-        // 시도 횟수 제한 내에서 겹침/자원부족 시 조용히 포기
-        for (let attempt = 0; attempt < 6; attempt++) {
-          const angle = (existing * 0.8 + Math.random()) * Math.PI * 2;
-          const radius = Math.max(4, Math.min(sanc.radius * 0.7, 6 + existing * 3));
-          const pos: [number, number, number] = [
-            sanc.center[0] + Math.cos(angle) * radius,
-            0,
-            sanc.center[2] + Math.sin(angle) * radius,
-          ];
-           const ok = BP.addBlueprint?.('Building' as any, pos, undefined, k, { silent: true, priority: 'High' });
-          if (ok) break;
-        }
-      };
-      // 자원 충분 시에만 자동 청사진 생성: 초반 자원 부족으로 대기하는 문제 방지
-      const woodEnough = (getQty as any)('Wood') >= 10;
-      const stoneEnough = (getQty as any)('Stone') >= 10;
-      const plankEnough = (getQty as any)('Plank') >= 6;
-      const ironEnough = (getQty as any)('IronIngot') >= 6;
-      const toolEnough = (getQty as any)('Tool') >= 2;
-      const canSpawnBasic = woodEnough || stoneEnough || plankEnough || ironEnough || toolEnough;
-       if (canSpawnBasic) {
-        // 우선순위: Lumberyard -> Smelter -> Workshop -> ResearchLab
-         // 용량 포화 시, 생산 건물 먼저
-         const invApi: any = (globalThis as any).__pfw_inventory_api;
-         const woodCapFree = invApi?.getFreeCapacity?.('Wood') ?? Infinity;
-         const stoneCapFree = invApi?.getFreeCapacity?.('Stone') ?? Infinity;
-         const plankCapFree = invApi?.getFreeCapacity?.('Plank') ?? Infinity;
-         const ironCapFree = invApi?.getFreeCapacity?.('IronIngot') ?? Infinity;
-         const fullWood = woodCapFree <= 0; const fullStone = stoneCapFree <= 0;
-         const wantLumberyard = fullWood && plankCapFree > 0;
-         const wantSmelter = fullStone && ironCapFree > 0;
-         if ((need.Plank < 20 || wantLumberyard) && !hasKind('Lumberyard') && !hasBpKind('Lumberyard')) {
-          placeNear('Lumberyard');
-         } else if ((need.IronIngot < 15 || wantSmelter) && !hasKind('Smelter') && !hasBpKind('Smelter')) {
-          placeNear('Smelter');
-        } else if (need.Tool < 10 && !hasKind('Workshop') && !hasBpKind('Workshop')) {
-          placeNear('Workshop');
-        } else if (need.ResearchPoint < 10 && !hasKind('ResearchLab') && !hasBpKind('ResearchLab')) {
-          placeNear('ResearchLab');
-        }
-      }
-      if (bps.length > 0) {
-        // pick nearest blueprint
+    function getNearestStorage(from: THREE.Vector3): { pos: THREE.Vector3; id?: string } | null {
+      try {
+        const stores = getBuildingsByKind('Storage' as any);
         let best: any = null; let bestD = Infinity;
-        for (const b of bps) {
-          const d = Math.hypot((b.position?.[0] ?? 0) - c.pos.x, (b.position?.[2] ?? 0) - c.pos.z);
-          if (d < bestD) { bestD = d; best = b; }
+        for (const s of stores) {
+          const p = new THREE.Vector3(s.position[0], 0, s.position[2]);
+          const d = from.distanceTo(p);
+          if (d < bestD) { bestD = d; best = { pos: p, id: s.id }; }
         }
-        if (best) {
-          const target = new THREE.Vector3(best.position[0], 0, best.position[2]);
-          c.target.copy(target);
-          // expose assist point for BuildSystem
-          const arr = ((globalThis as any).__pfw_build_assists as Array<{ pos: [number, number, number]; mult: number }>) ?? [];
-          (globalThis as any).__pfw_build_assists = arr;
-          const existing = arr.find(a => Math.hypot(a.pos[0] - c.pos.x, a.pos[2] - c.pos.z) < 0.5);
-          if (!existing) arr.push({ pos: [c.pos.x, 0, c.pos.z], mult: 1.0 });
-          // also expose builder presence list for BuildSystem to allow starting work gates
-          // append builder presence; BuildSystem will clear each tick
-          const near = ((globalThis as any).__pfw_near_builders as Array<[number, number, number]>) ?? [];
-          (globalThis as any).__pfw_near_builders = near;
-          near.push([c.pos.x, 0, c.pos.z]);
-        }
-      }
-      // 자원도 없고 청사진도 없으면 Builder 고집 X: Worker로 빠르게 회귀 유도
-      if (((globalThis as any).__pfw_blueprints as any[])?.length === 0 && !canSpawnBasic) {
-        c.roleCandidate = 'Worker';
-        c.roleCandidateTimer = 120; // 바로 전직 턴으로 유도
-      }
-    } else if (c.role === 'Researcher') {
-      // 연구자는 연구실로 이동하여 대기(생산은 ProductionSystem이 처리)
-      const labs = getBuildingsByKind('ResearchLab' as any);
-      if (labs.length > 0) {
-        // pick nearest lab
-        let best = labs[0];
-        let bestD = Infinity;
-        for (const b of labs) {
-          const d = Math.hypot(b.position[0] - c.pos.x, b.position[2] - c.pos.z);
-          if (d < bestD) { bestD = d; best = b; }
-        }
-        c.target.set(best.position[0], 0, best.position[2]);
-      }
-    } else if (c.role === 'Explorer') {
-      // 안개가 남아있는 방향으로 이동하여 밝힘
-      const sanc = getSanctums()[0];
-      const base = sanc ? new THREE.Vector3(sanc.center[0], 0, sanc.center[2]) : new THREE.Vector3(0,0,0);
-      c.exploreTimer = Math.max(0, (c.exploreTimer ?? 0) - dt);
-      const needNew = !c.exploreTarget || c.exploreTimer <= 0 || c.pos.distanceTo(c.exploreTarget) < 1.5;
-      if (needNew) {
-        let best: THREE.Vector3 | null = null; let bestScore = -Infinity;
-        for (let i = 0; i < 16; i++) {
-          const ang = Math.random() * Math.PI * 2;
-          const r = 30 + Math.random() * 90;
-          const x = base.x + Math.cos(ang) * r;
-          const z = base.z + Math.sin(ang) * r;
-          const vis = isWorldVisibleLazy(x, z);
-          const score = (vis ? -2 : 2) + Math.random() * 0.5 - c.pos.distanceTo(new THREE.Vector3(x,0,z)) * 0.01;
-          if (score > bestScore) { bestScore = score; best = new THREE.Vector3(x,0,z); }
-        }
-        c.exploreTarget = best ?? base.clone();
-        c.exploreTimer = 6 + Math.random() * 6;
-      }
-      c.target.copy(c.exploreTarget ?? base);
-    } else if (c.role === 'Worker') {
-      // 생산 건물로 이동하여 운영(ProductionSystem이 처리)
-      const priorities: Array<{ kind: BuildingKind; need: number }> = [
-        { kind: 'Lumberyard' as any, need: (getQty as any)('Plank') < 50 ? 1 : 0 },
-        { kind: 'Smelter' as any, need: (getQty as any)('IronIngot') < 40 ? 1 : 0 },
-        { kind: 'Workshop' as any, need: (getQty as any)('Tool') < 30 ? 1 : 0 },
-      ];
-      let targetB: any = null;
-      let bestScore = -1;
-      for (const p of priorities) {
-        if (p.need <= 0) continue;
-        const list = getBuildingsByKind(p.kind);
-        for (const b of list) {
-          const d = Math.hypot(b.position[0] - c.pos.x, b.position[2] - c.pos.z);
-          const score = p.need / Math.max(1, d);
-          if (score > bestScore) { bestScore = score; targetB = b; }
-        }
-      }
-      if (targetB) {
-        c.target.set(targetB.position[0] + 0.8, 0, targetB.position[2] + 0.0);
-        // mark presence when adjacent (list + counts)
-        if (Math.hypot(c.pos.x - targetB.position[0], c.pos.z - targetB.position[2]) <= 0.9) {
-          const arr: Array<string> = (globalThis as any).__pfw_near_producers ?? [];
-          (globalThis as any).__pfw_near_producers = arr;
-          if (!arr.includes(targetB.id)) arr.push(targetB.id);
-          const counts: Record<string, number> = (globalThis as any).__pfw_near_producers_counts ?? {};
-          (globalThis as any).__pfw_near_producers_counts = counts;
-          counts[targetB.id] = (counts[targetB.id] ?? 0) + 1;
-        }
-      }
-    } else if (c.state === 'Idle') {
+        return best;
+      } catch { return null; }
+    }
+
+    if (c.state === 'Idle') {
       // 타겟 지시가 있으면 우선 이동(최고 우선)
       const tg = listTargets()[0];
       if (tg) {
@@ -528,39 +244,100 @@ export function CitizenSystem(_world: GameWorld, dt: number): void {
         c.target.set(tg.position[0], 0, tg.position[2]);
         c.nodeTargetId = null;
       } else {
-      // 유틸리티 점수: 거리(역수) × 잔여량 × (슬롯 효율 보정) × 위험 보정
-      // 작업 청크 기반 선택
-      const chunks = listJobChunks();
-      let best: { id: string; pos: [number, number, number]; score: number } | null = null;
-       for (const ch of chunks) {
-        if (ch.available <= 0) continue;
-         // 미탐색 지역의 작업은 제외
-         if (!isWorldVisibleLazy(ch.position[0], ch.position[2])) continue;
-        const d = Math.max(1, c.pos.distanceTo(new THREE.Vector3(ch.position[0], 0, ch.position[2])));
-        const eff = effectiveWorkersFor(ch.id, ch.reserved + 1) - effectiveWorkersFor(ch.id, ch.reserved);
-        // 위험 보정: 성역 반경 밖 작업은 전시 위협도에 따라 감소. 겁쟁이 특성이면 더 큰 패널티
-        let riskMult = 1.0;
-        const sanc0 = getSanctums()[0];
-        if (sanc0) {
-          const dd = Math.hypot(ch.position[0] - sanc0.center[0], ch.position[2] - sanc0.center[2]);
-          if (dd > sanc0.radius) {
-            const threatNow = getThreat();
-            const vuln = c.traits?.includes('Coward') ? 0.6 : 0.3;
-            riskMult = Math.max(0.4, 1 - Math.min(0.6, threatNow * vuln));
-          }
+      // 중앙 디스패처 할당 우선 사용
+      const asg = getDispatchAssignment(c.id);
+      if (asg && typeof asg.jobId === 'string') {
+        const jid = asg.jobId;
+        const ch = getJobChunk(jid);
+        if (ch) {
+          c.nodeTargetId = jid;
+          c.state = 'ToNode';
+          c.target.set(ch.position[0], 0, ch.position[2]);
+        } else if (jid.startsWith('Assist_') || jid.startsWith('Build_') || jid.startsWith('Defend_') || jid.startsWith('Explore_')) {
+          // Assist 작업: 건물 위치로 이동
+          c.nodeTargetId = jid;
+          // 위치는 extras에 반영됨(JobDispatcherSystem). 최근 extras에서 좌표를 받아 사용
+          try {
+            const extras: Array<{ id: string; position: [number, number, number] }> = (globalThis as any).__pfw_extra_chunks ?? [];
+            const ex = extras.find(e => e.id === jid);
+            if (ex) c.target.set(ex.position[0], 0, ex.position[2]);
+          } catch {}
         }
-        const score = (ch.available / d) * Math.max(0.2, eff) * riskMult;
-        if (!best || score > best.score) best = { id: ch.id, pos: ch.position, score };
-      }
-      if (best && reserveJobChunk(best.id)) {
-        c.nodeTargetId = best.id;
-        c.state = 'ToNode';
-        c.target.set(best.pos[0], 0, best.pos[2]);
+      } else {
+        // 백업 제거: 중앙 디스패처만 사용
       }
       }
     }
 
-    const dir = c.target.clone().sub(c.pos);
+    // 위험 우회: 경로상 몬스터 접근 시 일시적인 회피 웨이포인트 설정
+    function maybeSetDetour(current: THREE.Vector3, desired: THREE.Vector3): THREE.Vector3 {
+      // guard-specific bypass removed in role-less mode
+      // 유지보수 보급/납품 중에는 우회 강도 낮춤
+      const allow = c.state === 'ToNode' || c.role === 'Explorer';
+      if (!allow) return desired;
+      const steps = 6;
+      const vx = desired.x - current.x; const vz = desired.z - current.z;
+      const len = Math.hypot(vx, vz);
+      if (len < 1e-3) return desired;
+      const ux = vx / len; const uz = vz / len;
+      const mons = getMonsters();
+      let danger = 0;
+      for (let i = 1; i <= steps; i++) {
+        const t = i / (steps + 1);
+        const x = current.x + vx * t; const z = current.z + vz * t;
+        let nearest = Infinity;
+        for (const m of mons) {
+          const d2 = Math.hypot(m.pos.x - x, m.pos.z - z);
+          if (d2 < nearest) nearest = d2;
+        }
+        const local = nearest <= 8 ? 1.0 : nearest <= 14 ? 0.6 : 0.0;
+        danger = Math.max(danger, local);
+      }
+      if (danger >= 1.0 && (!c.detourTimer || c.detourTimer <= 0)) {
+        // 좌/우 중 더 안전한 쪽으로 90° 회피 웨이포인트 생성(거리 6m)
+        const left = new THREE.Vector3(-uz, 0, ux);
+        const right = new THREE.Vector3(uz, 0, -ux);
+        function scoreDir(dv: THREE.Vector3): number {
+          const px = current.x + dv.x * 6; const pz = current.z + dv.z * 6;
+          let nearest = Infinity;
+          for (const m of mons) {
+            const d2 = Math.hypot(m.pos.x - px, m.pos.z - pz);
+            if (d2 < nearest) nearest = d2;
+          }
+          return nearest;
+        }
+        const sL = scoreDir(left), sR = scoreDir(right);
+        const pick = sL >= sR ? left : right;
+        c.detourTarget = new THREE.Vector3(current.x + pick.x * 6, 0, current.z + pick.z * 6);
+        c.detourTimer = 4.0;
+      }
+      if (c.detourTarget && (c.detourTimer ?? 0) > 0) {
+        return c.detourTarget.clone();
+      }
+      return desired;
+    }
+
+    // detour timer decay
+    if ((c.detourTimer ?? 0) > 0) c.detourTimer = Math.max(0, (c.detourTimer ?? 0) - dt);
+    if (c.detourTarget && c.pos.distanceTo(c.detourTarget) < 0.8) { c.detourTarget = undefined; c.detourTimer = 0; }
+
+    // 간이 A*: 멀리 떨어진 목표에 대해서는 경사/도로/위험을 고려한 경로로 중간 웨이포인트를 한 번에 설정
+    let finalTarget = maybeSetDetour(c.pos, c.target);
+    {
+      const d2goal = c.pos.distanceTo(c.target);
+      c.pathEvalTimer = Math.max(0, (c.pathEvalTimer ?? 0) - dt);
+      if (d2goal > 18 && (!c.detourTimer || c.detourTimer <= 0) && (c.pathEvalTimer ?? 0) <= 0) {
+        const path = computePathSmart([c.pos.x, c.pos.z], [c.target.x, c.target.z], 48, 4);
+        if (path && path.length >= 2) {
+          const next = path[Math.min(1, path.length - 1)];
+          finalTarget = new THREE.Vector3(next[0], 0, next[2]);
+          c.pathEvalTimer = 0.6; // re-evaluate path at most ~1.6Hz
+        } else {
+          c.pathEvalTimer = 0.6;
+        }
+      }
+    }
+    const dir = finalTarget.clone().sub(c.pos);
     const dist = dir.length();
     const loadPenalty = 0.05 * c.carry.qty;
     const moveBase = Math.max(1.2, (c.derived?.Move ?? 2.0) * (1 - loadPenalty));
@@ -570,7 +347,7 @@ export function CitizenSystem(_world: GameWorld, dt: number): void {
     let traitMoveMult = 1.0;
     if (c.traits?.includes('Dexterous')) traitMoveMult *= 1.05;
     if (isNight) traitMoveMult *= c.traits?.includes('NightOwl') ? 1.05 : 0.95;
-    if (threat > 0.6 && c.traits?.includes('Coward') && c.role !== 'Guard') traitMoveMult *= 0.9;
+    if (threat > 0.6 && c.traits?.includes('Coward')) traitMoveMult *= 0.9;
     const base = moveBase * (threat > 0.6 ? 0.95 : 1.0) * traitMoveMult; // 전시 체제 시 소폭 이동 억제
     const factor = speedFactorAt(c.pos.x, c.pos.z);
     // 경로 평균 비용 근사: 현재 위치→타겟을 6구간으로 샘플링하여 평균 도로 계수 반영
@@ -585,7 +362,7 @@ export function CitizenSystem(_world: GameWorld, dt: number): void {
       }
       return sum / (steps + 1);
     }
-    const pf = pathFactorApprox(c.pos, c.target);
+    const pf = pathFactorApprox(c.pos, finalTarget);
     const spd = base * Math.max(factor, pf);
     if (dist > 0.001) {
       dir.multiplyScalar(1 / dist);
@@ -627,34 +404,72 @@ export function CitizenSystem(_world: GameWorld, dt: number): void {
          // 약한 후방 시야
          addVisibleSector([c.pos.x, c.pos.z], 6, dir + Math.PI, (40 * Math.PI) / 180);
        }
-      if (dist <= 1.2) {
-        if (c.role !== 'Guard' && c.state === 'ToNode' && c.nodeTargetId) {
+       if (dist <= 1.2) {
+        if ((c.state === 'ToNode' || c.state === 'WorkingGather' || c.state === 'WorkingMaintain') && c.nodeTargetId) {
           const ch = getJobChunk(c.nodeTargetId);
           if (ch && ch.kind === 'Maintain') {
+            c.state = 'WorkingMaintain';
             const roads = getRoads();
             const r = roads.find(rr => rr.id === ch.nodeId);
             if (r) {
               (c as any).maintWork = ((c as any).maintWork ?? 0) + dt;
               if ((c as any).maintWork >= 4.0) {
-                const gain = 0.15;
-                r.durability = Math.min(1.0, (r.durability ?? 1) + gain);
-                try { window.dispatchEvent(new CustomEvent('pfw-ui-log', { detail: { category: 'Road', text: `도로 보수 +${Math.round(gain*100)}%` } })); } catch {}
+                // 자원 소비 규칙 및 재보급 처리
+                let ok = true;
+                let usedCarry = false;
+                let item: any = null; let qty = 0;
+                if (r.type === 'Gravel') { item = 'Stone'; qty = 1; }
+                else if (r.type === 'Wood') { item = 'Wood'; qty = 1; }
+                else if (r.type === 'Stone') { item = 'Stone'; qty = 1; }
+                if (item && qty > 0) {
+                  // 우선 손에 들고 있으면 사용
+                  if (c.carry.item === item && c.carry.qty >= qty) {
+                    c.carry.qty -= qty; if (c.carry.qty <= 0) c.carry.item = null;
+                    usedCarry = true; ok = true;
+                  } else {
+                    ok = canConsume(item, qty) && consume(item, qty);
+                  }
+                }
+                if (ok) {
+                  const gain = 0.15;
+                  r.durability = Math.min(1.0, (r.durability ?? 1) + gain);
+                  try { window.dispatchEvent(new CustomEvent('pfw-ui-log', { detail: { category: 'Road', text: `도로 보수 +${Math.round(gain*100)}% (${item ? (usedCarry ? '휴대' : item+" -"+qty) : '무료'})` } })); } catch {}
+                } else {
+                  // 재보급 루틴: 가까운 Storage로 이동하여 보급 시도 후 복귀
+                  (c as any).needSupply = { item, qty };
+                  const near = getNearestStorage(c.pos);
+                  if (near) { c.state = 'ToSupply'; c.target.copy(near.pos); }
+                  (c as any).supplyWaitSec = 0;
+                }
                 (c as any).maintWork = 0;
-                releaseJobChunk(c.nodeTargetId);
-                c.nodeTargetId = null;
-                c.state = 'Idle';
+                 if (c.state !== 'ToSupply') {
+                  releaseJobChunk(c.nodeTargetId);
+                  c.nodeTargetId = null;
+                  c.state = 'Idle';
+                }
               }
             }
-          } else {
+          } else if (ch && ch.kind === 'Gather') {
+            c.state = 'WorkingGather';
             // 노드 근처에서 가시적으로 작업: 근접 반경 내에서 정지 상태로 채집 진행
             const nodes = getNodes();
             const node = nodes.find((n) => c.nodeTargetId?.startsWith('Gather_') ? `Gather_${n.nodeId}` === c.nodeTargetId : n.nodeId === c.nodeTargetId);
              if (node) {
                const item = node.type === 'Forest' ? 'Wood' : node.type === 'IronMine' ? 'Stone' : node.type === 'HerbPatch' ? 'Herb' : 'ManaRaw';
-              // 속도 상향: 벌목 1/4s, 채광 1/6s (가시성/템포 개선)
-               const baseRate = node.type === 'Forest' ? (1 / 4) : (node.type === 'IronMine' ? (1 / 6) : (node.type === 'HerbPatch' ? (1 / 3.5) : (1 / 8)));
+              // 속도 상향: 벌목 1/3s, 채광 1/5s, 약초 1/3s, 마나 1/7s
+               const baseRate = node.type === 'Forest' ? (1 / 3) : (node.type === 'IronMine' ? (1 / 5) : (node.type === 'HerbPatch' ? (1 / 3) : (1 / 7)));
               // 전언/특성 멀티
               let gatherMult = Math.max(1, getMultiplier('Gather', node.type));
+              // 스탯/적성 기반 작업 속도 보정
+              const STR = c.stats?.STR ?? 10, DEX = c.stats?.DEX ?? 10, VIT = c.stats?.VIT ?? 10;
+              const A = c.aptitude ?? {} as any;
+              const apt = node.type === 'Forest' ? (A.Forest ?? 1) : node.type === 'IronMine' ? (A.IronMine ?? 1) : node.type === 'HerbPatch' ? (A.Alchemy ?? 1) : (A.Research ?? 1);
+              const statFit = node.type === 'Forest' ? ((STR-10)/40 + (DEX-10)/50) : node.type === 'IronMine' ? ((STR-10)/40 + (VIT-10)/60) : 0.1;
+              gatherMult *= Math.max(0.7, 1 + 0.15*(apt-1) + statFit);
+              // ToolFit: 도구 보유 시 보너스
+              const t = c.equipment?.tool;
+              if (node.type === 'Forest' && t === 'Axe') gatherMult *= 1.15;
+              if (node.type === 'IronMine' && t === 'Pick') gatherMult *= 1.15;
               if (c.traits?.includes('Diligent')) gatherMult *= 1.05;
               // 슬롯 감가: eff/n (reserved 인원 기준)
               let perWorkerEff = 1.0;
@@ -701,9 +516,18 @@ export function CitizenSystem(_world: GameWorld, dt: number): void {
                    }
                  }
                } catch {}
-              if (produced > 0) {
+               if (produced > 0) {
                 c.carry.item = item as any;
                 c.carry.qty += produced;
+                // 스킬/스탯/적성 성장(소량)
+                const g = produced * 0.01;
+                if (item === 'Wood') {
+                  c.stats.STR += Math.random() < g ? 1 : 0;
+                  (c.aptitude as any).Forest = Math.min(((c.aptitude as any).Forest ?? 1) + g*0.02, 3);
+                } else if (item === 'Stone') {
+                  c.stats.VIT += Math.random() < g ? 1 : 0;
+                  (c.aptitude as any).IronMine = Math.min(((c.aptitude as any).IronMine ?? 1) + g*0.02, 3);
+                }
               }
               // 충돌 회피: 건물/노드/도로 겹침과 시민 간 겹침 방지(간단한 반발)
               function pushAway(px: number, pz: number, cx: number, cz: number, minDist: number): { x: number; z: number } {
@@ -732,7 +556,7 @@ export function CitizenSystem(_world: GameWorld, dt: number): void {
               }
               c.pos.set(nx, 0, nz);
               // 가득 찼을 때만 납품으로 이동. 생산이 0이면 잠시 대기하며 계속 시도
-              if (c.carry.qty >= c.carry.capacity) {
+               if (c.carry.qty >= c.carry.capacity) {
                 c.state = 'ToSanctum';
                 const dep = getNearestDeposit(c.pos);
                 if (dep) c.target.copy(dep.pos); else c.target.copy(sanctumCenter);
@@ -742,6 +566,29 @@ export function CitizenSystem(_world: GameWorld, dt: number): void {
               c.state = 'Idle';
               if (c.nodeTargetId?.startsWith('Gather_')) releaseJobChunk(c.nodeTargetId);
               c.nodeTargetId = null;
+            }
+          } else if (!ch && typeof c.nodeTargetId === 'string' && (c.nodeTargetId.startsWith('Assist_') || c.nodeTargetId.startsWith('Build_') || c.nodeTargetId.startsWith('Explore_') || c.nodeTargetId.startsWith('Defend_'))) {
+            // Assist/Build/Explore/Defend pseudo-job 도착 처리
+            const extras: Array<{ id: string; position: [number, number, number] }> = (globalThis as any).__pfw_extra_chunks ?? [];
+            const ex = extras.find(e => e.id === c.nodeTargetId);
+            if (ex) {
+              const nearEnough = Math.hypot(c.pos.x - ex.position[0], c.pos.z - ex.position[2]) <= 0.9;
+              if (nearEnough) {
+                const arr: Array<string> = (globalThis as any).__pfw_near_producers ?? [];
+                (globalThis as any).__pfw_near_producers = arr;
+                if (!arr.includes(c.nodeTargetId)) arr.push(c.nodeTargetId);
+                const counts: Record<string, number> = (globalThis as any).__pfw_near_producers_counts ?? {};
+                (globalThis as any).__pfw_near_producers_counts = counts;
+                counts[c.nodeTargetId] = (counts[c.nodeTargetId] ?? 0) + 1;
+                const weights: Record<string, number> = (globalThis as any).__pfw_near_producers_weights ?? {};
+                (globalThis as any).__pfw_near_producers_weights = weights;
+                weights[c.nodeTargetId] = (weights[c.nodeTargetId] ?? 0) + 1.0;
+                // kind별 상태 설정
+                if (c.nodeTargetId.startsWith('Build_')) c.state = 'Assist';
+                else if (c.nodeTargetId.startsWith('Explore_')) c.state = 'Assist';
+                else if (c.nodeTargetId.startsWith('Defend_')) c.state = 'Assist';
+                else c.state = 'Assist';
+              }
             }
           }
           } else if (c.state === 'ToSanctum') {
@@ -765,70 +612,59 @@ export function CitizenSystem(_world: GameWorld, dt: number): void {
             }
             c.carry.item = null; c.carry.qty = 0; c.state = 'Idle'; c.nodeTargetId = null;
              }
-          }
+          } else {
+            // no-op: 다른 작업 유형은 아직 없음
         }
-      }
-    }
-    // 이동이 거의 없을 때도 도착 판정/작업 수행 보장
-    if (c.role !== 'Guard' && c.state === 'ToNode' && c.nodeTargetId && dist <= 1.2) {
-      const ch = getJobChunk(c.nodeTargetId);
-      if (ch && ch.kind === 'Maintain') {
-        const roads = getRoads();
-        const r = roads.find(rr => rr.id === ch.nodeId);
-        if (r) {
-          (c as any).maintWork = ((c as any).maintWork ?? 0) + dt;
-          if ((c as any).maintWork >= 4.0) {
-            const gain = 0.15;
-            r.durability = Math.min(1.0, (r.durability ?? 1) + gain);
-            try { window.dispatchEvent(new CustomEvent('pfw-ui-log', { detail: { category: 'Road', text: `도로 보수 +${Math.round(gain*100)}%` } })); } catch {}
-            (c as any).maintWork = 0;
-            releaseJobChunk(c.nodeTargetId);
-            c.nodeTargetId = null;
+          }
+        } else if (c.state === 'ToSupply') {
+          // 보급 도착 처리
+          const need = (c as any).needSupply as { item: 'Wood' | 'Stone'; qty: number } | undefined;
+          if (need) {
+            // Storage 근처 2m 내에서 보급 시도
+            if (c.pos.distanceTo(c.target) < 2.0) {
+              if (canConsume(need.item as any, need.qty)) {
+                if (consume(need.item as any, need.qty)) {
+                  // 휴대에 적재(유형 동일하면 누적)
+                  if (c.carry.item === need.item || c.carry.item === null) {
+                    c.carry.item = need.item as any;
+                    c.carry.qty = Math.min(c.carry.capacity, c.carry.qty + need.qty);
+                  }
+                  try { window.dispatchEvent(new CustomEvent('pfw-ui-log', { detail: { category: 'Road', text: `보급 완료: ${need.item} x${need.qty}` } })); } catch {}
+                  // 원래 작업 위치로 복귀
+                  if (c.nodeTargetId) {
+                    const ch = getJobChunk(c.nodeTargetId);
+                    if (ch) {
+                      c.state = 'ToNode';
+                      c.target.set(ch.position[0], 0, ch.position[2]);
+                    } else { c.state = 'Idle'; }
+                  } else { c.state = 'Idle'; }
+                  (c as any).needSupply = undefined;
+                }
+              } else {
+                // 대기 타임아웃
+                (c as any).supplyWaitSec = ((c as any).supplyWaitSec ?? 0) + dt;
+                if (((c as any).supplyWaitSec ?? 0) > 10) {
+                  try { window.dispatchEvent(new CustomEvent('pfw-ui-log', { detail: { category: 'Road', text: `보급 실패(타임아웃): ${need.item}` } })); } catch {}
+                  if (c.nodeTargetId?.startsWith('Maintain_')) releaseJobChunk(c.nodeTargetId);
+                  c.nodeTargetId = null; c.state = 'Idle'; (c as any).needSupply = undefined;
+                }
+              }
+            }
+          } else {
             c.state = 'Idle';
           }
-      }
-      } else {
-        const nodes = getNodes();
-        const node = nodes.find((n) => c.nodeTargetId?.startsWith('Gather_') ? `Gather_${n.nodeId}` === c.nodeTargetId : n.nodeId === c.nodeTargetId);
-         if (node) {
-           const item = node.type === 'Forest' ? 'Wood' : node.type === 'IronMine' ? 'Stone' : node.type === 'HerbPatch' ? 'Herb' : 'ManaRaw';
-           const baseRate = node.type === 'Forest' ? (1 / 4) : (node.type === 'IronMine' ? (1 / 6) : (node.type === 'HerbPatch' ? (1 / 3.5) : (1 / 8)));
-          let gatherMult = Math.max(1, getMultiplier('Gather', node.type));
-          if (c.traits?.includes('Diligent')) gatherMult *= 1.05;
-          let perWorkerEff = 1.0;
-          const ch2 = getJobChunk(c.nodeTargetId);
-          if (ch2) {
-            const nRes = Math.max(1, ch2.reserved);
-            const eff = effectiveWorkersFor(ch2.id, ch2.reserved);
-            perWorkerEff = Math.max(0.1, eff / nRes);
-          }
-          const rate = baseRate * gatherMult * perWorkerEff;
-          (c as any).gatherProgress = ((c as any).gatherProgress ?? 0) + rate * dt;
-          let produced = 0;
-          while ((c as any).gatherProgress >= 1.0 && c.carry.qty < c.carry.capacity) {
-            if (tryConsumeFromNodeAt(node.nodeId, 1)) {
-              (c as any).gatherProgress -= 1.0;
-              produced += 1;
-            } else { break; }
-          }
-          if (produced > 0) { c.carry.item = item as any; c.carry.qty += produced; }
-          if (c.carry.qty >= c.carry.capacity) {
-            c.state = 'ToSanctum';
-            const sanc = getSanctums()[0];
-            if (sanc) c.target.set(sanc.center[0], 0, sanc.center[2]);
-            if (c.nodeTargetId?.startsWith('Gather_')) releaseJobChunk(c.nodeTargetId);
-          }
         }
       }
     }
-    // 성역 중심부에서 휴식 시 피로 회복
+    // close per-citizen block above; subsequent maintenance in second pass below
+  // 성역 휴식 및 작업 재평가(세컨드 패스)
+  for (const c of citizens) {
     const sanc = getSanctums()[0];
     if (sanc) {
       const d = Math.hypot(c.pos.x - sanc.center[0], c.pos.z - sanc.center[2]);
       if (d <= sanc.radius * 0.5) c.fatigue = Math.max(0, c.fatigue - dt * 0.05);
     }
-    // A2 유틸리티 재평가: 0.6s 간격, 20% 이상 우위 시 전환
-    if (c.role === 'Worker') {
+    if (c.role === 'Lumberjack' || c.role === 'Miner') {
       c.thinkTimer -= dt;
       if (c.thinkTimer <= 0) {
         c.thinkTimer = 0.6;
@@ -836,6 +672,12 @@ export function CitizenSystem(_world: GameWorld, dt: number): void {
         const desiredWood = 50, desiredStone = 50;
         function scoreFor(ch: { id: string; nodeType: string; position: [number, number, number]; reserved: number; slots: { soft: number; hard: number }; available: number }): number {
           if (ch.available <= 0) return 0;
+          const isGather = typeof ch.id === 'string' && ch.id.startsWith('Gather_');
+          if (c.role === 'Lumberjack') {
+            if (!(isGather && ch.nodeType === 'Forest')) return 0;
+          } else if (c.role === 'Miner') {
+            if (!(isGather && ch.nodeType === 'IronMine')) return 0;
+          }
           const d = Math.max(1, c.pos.distanceTo(new THREE.Vector3(ch.position[0], 0, ch.position[2])));
           const distFactor = 1 / (1 + d / 50);
          const effNext = Math.max(0.1, effectiveWorkersFor(ch.id, ch.reserved + 1) - effectiveWorkersFor(ch.id, ch.reserved));
@@ -847,14 +689,17 @@ export function CitizenSystem(_world: GameWorld, dt: number): void {
             const scarcity = Math.max(0, Math.min(1, (desired - (getQty as any)(needBase)) / desired));
             need = 1 + 0.5 * scarcity;
           } else if (ch.id.startsWith('Maintain_')) {
-            // 도로 보수는 전언 대신 도로 상태와 거리만 반영(간이): 여유가 있으면 1.2, 기본 1.0
-            ed = 1.0;
+            ed = getMultiplier('Build', 'Road');
             need = 1.2;
           }
-         const aptKey = nodeAptKey(ch.nodeType);
-         const apt = aptKey ? ((c.aptitude as any)[aptKey] ?? 1.0) : 1.0;
+          const apt = (() => {
+            if (ch.nodeType === 'Forest') return (c.aptitude as any).Forest ?? 1.0;
+            if (ch.nodeType === 'IronMine') return (c.aptitude as any).IronMine ?? 1.0;
+            if (ch.nodeType === 'HerbPatch') return (c.aptitude as any).Alchemy ?? 1.0;
+            if (ch.nodeType === 'ManaSpring') return (c.aptitude as any).Research ?? 1.0;
+            return 1.0;
+          })();
           const fatigue = 1 - c.fatigue;
-          // 위험 보정: 성역 밖 작업 시 전시 위협도 × 취약도
           let risk = 1.0;
           const sancA = getSanctums()[0];
           if (sancA) {
@@ -865,7 +710,6 @@ export function CitizenSystem(_world: GameWorld, dt: number): void {
               risk = Math.max(0.4, 1 - Math.min(0.6, threatNow * vuln));
             }
           }
-          // TargetOrder: 가까운 타겟이 있으면 가산(가중치 +0.2까지)
           const tgt = listTargets()[0];
           let targetOrder = 0;
           if (tgt) {
@@ -879,21 +723,20 @@ export function CitizenSystem(_world: GameWorld, dt: number): void {
         const top = scored.slice(0, 5).map(s => ({ id: s.ch.id, score: s.score }));
         citizenTop5.set(c.id, top);
         (globalThis as any).__pfw_cit_top5 = getCitizenTop5();
-        // 자원/재생력 고려: 노드 가용량 우선(available), 재생률을 간접 반영(available이 높을수록 선호)
          const best = scored[0];
         const current = chunks.find(ch => ch.id === c.nodeTargetId);
         const curScore = current ? scoreFor(current as any) : 0;
         const nowSec = performance.now() / 1000;
         const lockUntil = ((c as any).jobLockUntilSec ?? 0);
         const locked = c.state === 'ToNode' && c.nodeTargetId && nowSec < lockUntil;
-        const switchThreshold = c.nodeTargetId ? 1.5 : 1.2; // 이동 중엔 더 높은 임계로 스위칭 억제
+        const switchThreshold = c.nodeTargetId ? 1.5 : 1.2;
         if (!locked && best && best.score > curScore * switchThreshold) {
           if (c.nodeTargetId?.startsWith('Gather_')) releaseJobChunk(c.nodeTargetId);
           if (reserveJobChunk(best.ch.id)) {
             c.nodeTargetId = best.ch.id;
             c.state = 'ToNode';
             c.target.set(best.ch.position[0], 0, best.ch.position[2]);
-            (c as any).jobLockUntilSec = nowSec + 8; // 최소 수행 시간 보장
+            (c as any).jobLockUntilSec = nowSec + 8;
           }
         }
       }
@@ -960,10 +803,10 @@ export function createCitizenRenderSystem(scene: SceneRoot) {
 
   function emojiForCitizen(c: any): string {
     // Rough mapping by role/state
-    if (c.role === 'Guard') return '🛡️';
+    // role-less: keep generic icons only
     if (c.role === 'Builder') return '🔨';
     if (c.role === 'Researcher') return '🔬';
-    if (c.role === 'Worker') {
+    if (c.role === 'Carpenter' || c.role === 'Smith' || c.role === 'Artisan') {
       if (c.state === 'ToSanctum' && c.carry?.qty > 0) return '📦';
       if (c.state === 'ToNode') {
         if (typeof c.nodeTargetId === 'string' && c.nodeTargetId.startsWith('Maintain_')) return '🛠️';
@@ -1074,17 +917,12 @@ export function createCitizenRenderSystem(scene: SceneRoot) {
       } else {
         mat.color.set(c.carry.qty > 0 ? 0x33dd88 : 0x66ccff);
       }
-      // role 배지 색상
+      // role-less: badge shows generic color only
       const badge = m.children.find((ch: any) => ch?.name === 'badge') as THREE.Mesh | undefined;
       if (badge) {
         const bm = badge.material as THREE.MeshBasicMaterial;
-        let color = 0x66ccff;
-        if (c.role === 'Guard') color = 0xff4444;
-        else if (c.role === 'Lumberjack') color = 0x33cc66;
-        else if (c.role === 'Miner') color = 0x888888;
-        else if (c.role === 'Builder') color = 0xffcc33;
-        else if (c.role === 'Researcher') color = 0x8a7dff;
-        bm.color.set(color);
+        const genericColor = 0x66ccff;
+        bm.color.set(genericColor);
       }
       // emoji bubble
       const emoji = emojiForCitizen(c);
@@ -1120,7 +958,7 @@ export function createCitizenRenderSystem(scene: SceneRoot) {
       const isMaintain = isAtNode && typeof c.nodeTargetId === 'string' && c.nodeTargetId.startsWith('Maintain_');
       const isBuild = c.role === 'Builder' && distToTarget < 1.2;
       // tool visibility
-      if (spear) spear.visible = c.role === 'Guard';
+      if (spear) spear.visible = false;
       if (hammer) hammer.visible = isBuild;
       if (book) book.visible = c.role === 'Researcher';
       if (crate) crate.visible = c.carry.qty > 0;

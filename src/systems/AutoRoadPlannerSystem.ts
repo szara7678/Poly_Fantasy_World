@@ -1,5 +1,8 @@
 import type { GameWorld } from '../ecs';
 import { getSanctums } from './SanctumSystem';
+import { getMonsters } from './MonsterSystem';
+import { getRoadSlopeAllowance } from './ResearchSystem';
+import { getHeightAt } from './BiomeSystem';
 import { addBlueprint, getBlueprints } from './BlueprintSystem';
 import type { RoadType } from './RoadNetwork';
 import { hasRoadNear } from './RoadNetwork';
@@ -107,15 +110,48 @@ export function AutoRoadPlannerSystem(_world: GameWorld, dt: number): void {
   const chunks = listJobChunks();
   for (const ch of chunks) {
     if (ch.available <= 0) continue;
+    // 경사/위험 패널티: 경로 후보가 지나치게 가파르면 제외
+    const allow = getRoadSlopeAllowance();
+    const steps = 8;
+    let blocked = false;
+    let slopePenalty = 1.0;
+    let riskPenalty = 1.0;
     let targets: Pos[] = [];
     if (ch.nodeType === 'Forest' && lumberyards.length > 0) targets = lumberyards.map(b => [b.position[0], 0, b.position[2]] as Pos);
     else if (ch.nodeType === 'IronMine' && smelters.length > 0) targets = smelters.map(b => [b.position[0], 0, b.position[2]] as Pos);
     if (targets.length === 0) targets = hubs;
     const t = nearest(targets, ch.position as any);
     if (!t) continue;
+    // 경사/위험 계산
+    for (let i = 0; i <= steps; i++) {
+      const u = i / steps;
+      const x = t[0] + (ch.position[0] - t[0]) * u;
+      const z = t[2] + (ch.position[2] - t[2]) * u;
+      const x2 = t[0] + (ch.position[0] - t[0]) * Math.min(1, u + 1 / steps);
+      const z2 = t[2] + (ch.position[2] - t[2]) * Math.min(1, u + 1 / steps);
+      const h1 = getHeightAt(x, z);
+      const h2 = getHeightAt(x2, z2);
+      const dh = (h2 - h1) * 1.2;
+      const dx = Math.hypot(x2 - x, z2 - z);
+      const deg = Math.atan2(Math.abs(dh), Math.max(1e-3, dx)) * 180 / Math.PI;
+      if (deg > allow) { blocked = true; break; }
+      if (deg > allow - 10) slopePenalty *= 0.9;
+      // 위험: 인접 몬스터가 가까울수록 패널티 누적
+      const mons = getMonsters();
+      if (mons.length > 0) {
+        let nearest = Infinity;
+        for (const m of mons) {
+          const d2 = Math.hypot(m.pos.x - x, m.pos.z - z);
+          if (d2 < nearest) nearest = d2;
+        }
+        const local = nearest <= 10 ? 0.7 : nearest <= 20 ? 0.85 : 1.0;
+        riskPenalty *= local;
+      }
+    }
+    if (blocked) continue;
     const d = Math.hypot(t[0] - ch.position[0], t[2] - ch.position[2]);
     const need = Math.max(1, ch.available);
-    const score = need / Math.max(8, d);
+    const score = (need / Math.max(8, d)) * slopePenalty * riskPenalty;
     candidates.push({ from: t, to: ch.position as any, score, type: 'Gravel' });
   }
 

@@ -30,6 +30,12 @@
  - SanctumPanel: 성역 유지비 총합(연구 멀티 포함) UI 표기 추가.
  - RoadHelper: 추천 경로에 타일 수 기반 비용/시간 추정 표시. 경사 허용은 연구(RoadSlope+5°)로 확장.
  - Citizen: 이동 속도에 경로 평균 도로 계수 반영.
+ - Citizen: 유틸리티 재평가 대상을 `Worker`에서 `Lumberjack/Miner`로 한정(플랜의 역할 분리 준수). `Worker`는 생산 건물 운영/보조에 집중.
+ - CRO: 전언(Edict) 효과 EMA 스냅백을 수요 계산에 도입하여 역할 쿼터 급변 완화.
+ - RoleQueues: 역할별 작업 큐 가중치(JWeight) 계산에 파라미터 세트를 도입(`getJQParams/setJQParams`).
+   - 항목: needFactor, maintenanceAvailFactor, facilityStorageBonus, sanctumInsideBonus, edictMin, edictPower, travelSanctumScale, perCitizenTravelScale, cowardPenalty, edictTauSec.
+   - 전언 가중치도 EMA로 스무딩하여 작업 큐 변동성을 낮춤.
+ - DebugPanel: 역할 큐 가중치(JWeight) 슬라이더 및 큐 상위 항목 미리보기 추가.
 ## 2025-08-12
 
 - Vite + React + TS 템플릿으로 전환, 기본 의존성 설치

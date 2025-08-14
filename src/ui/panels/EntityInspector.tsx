@@ -37,13 +37,13 @@ export function EntityInspector(): React.JSX.Element {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
             <div>
               <div><b>ID</b>: {c.id}</div>
-              <div><b>역할</b>: {c.role}</div>
               <div><b>상태</b>: {c.state}</div>
               <div><b>위치</b>: {c.pos.x.toFixed(2)}, {c.pos.z.toFixed(2)}</div>
               <div><b>속도</b>: {c.vel.length().toFixed(2)} m/s</div>
               <div><b>피로</b>: {(c.fatigue*100|0)}%</div>
               <div><b>소지</b>: {c.carry.item ?? '-'} x {c.carry.qty}/{c.carry.capacity}</div>
               <div><b>타겟</b>: {c.nodeTargetId ?? '-'}</div>
+              <div><b>세션 남은 시간</b>: {(() => { try { const mod: any = (window as any).require?.('../../systems/JobDispatcherSystem'); const si = mod?.getSessionInfo?.(c.id); return si ? `${si.timeLeftSec.toFixed(1)}s` : '-'; } catch { return '-'; } })()}</div>
             </div>
             <div>
               <div><b>특성</b>: {(c.traits||[]).join(', ') || '-'}</div>
@@ -65,7 +65,7 @@ export function EntityInspector(): React.JSX.Element {
         </div>
       );
     } else {
-      content = (<div>시민 데이터를 찾을 수 없습니다. (역할 변경/제거되었을 수 있습니다)</div>);
+      content = (<div>시민 데이터를 찾을 수 없습니다.</div>);
     }
   } else if (data.type === 'Building') {
     const b = getBuildings().find(x => x.id === data.id);
@@ -88,10 +88,15 @@ export function EntityInspector(): React.JSX.Element {
           {b.kind === 'Storage' && (
             <div style={{ marginTop: 6, fontSize: 12, opacity: 0.9 }}>용량 보너스: +{100 * level}</div>
           )}
-          <div style={{ marginTop: 8, display: 'flex', gap: 6 }}>
+          <div style={{ marginTop: 8, display: 'flex', gap: 6, alignItems: 'center' }}>
             <button onClick={() => dispatch('upgrade')}>업그레이드</button>
             <button onClick={() => dispatch('downgrade')}>다운그레이드</button>
             <button onClick={() => { setBuildingActive(b.id, !(b as any).active); }}>가동/중지</button>
+            <span style={{ marginLeft: 6, fontSize: 12 }}>레벨 설정:</span>
+            <input type="number" min={1} max={5} defaultValue={level} style={{ width: 60 }} onBlur={(e) => {
+              const v = parseInt((e.target as HTMLInputElement).value || '1', 10);
+              try { window.dispatchEvent(new CustomEvent('pfw-building-action', { detail: { id: b.id, action: 'setLevel', value: v } })); } catch {}
+            }} />
           </div>
         </div>
       );

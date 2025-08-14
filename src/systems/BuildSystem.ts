@@ -68,12 +68,9 @@ export function BuildSystem(_world: GameWorld, dt: number): void {
       }
       job.hasWorker = true;
     }
-    // Apply edict multiplier: Build/(Road|Building) speeds up construction
+    // Apply speed multiplier (no edicts here): base speed
     const bp = bpById.get(id);
-    const tag = bp?.type;
-    const mult = getMultiplier('Build', tag);
-    // If road subtype has its own time, initialize job at creation already did; here only multiplier
-    let speed = dt * Math.max(0.1, mult);
+    let speed = dt * 1.0;
     // Apply builder assists near this blueprint
     const bp2 = bpById.get(id);
     if (bp2 && assists.length > 0) {

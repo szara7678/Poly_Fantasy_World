@@ -6,11 +6,13 @@ export interface JobChunk {
   id: string; // e.g., Gather_forest_01 or Maintain_road_...
   kind: 'Gather' | 'Maintain';
   nodeId: string; // for Gather: nodeId, for Maintain: refId (e.g., road id)
-  nodeType: ResourceNode['type'];
+  nodeType: string; // ResourceNode['type'] | 'Road' | etc.
   position: [number, number, number];
   slots: { soft: number; hard: number };
   reserved: number;
   available: number; // remaining capacity or repair need (>=0)
+  reqItem?: 'Wood' | 'Stone';
+  reqQty?: number;
 }
 
 const chunks = new Map<string, JobChunk>();
@@ -117,18 +119,44 @@ export function JobChunkSystem(_world: GameWorld, _dt: number): void {
     for (const r of roads) {
       const dur = r.durability ?? 1;
       if (dur >= 0.98) continue;
-      const need = Math.ceil((1 - dur) * 10);
+      // 타입별 보수 필요량 스케일: Dirt<Wood<Gravel<Stone
+      const needScale = ((): number => {
+        switch ((r as any).type) {
+          case 'Dirt': return 8;
+          case 'Wood': return 10;
+          case 'Gravel': return 12;
+          case 'Stone': return 16;
+          default: return 10;
+        }
+      })();
+      const need = Math.ceil((1 - dur) * needScale);
       const id = `Maintain_${r.id}`;
       alive.add(id);
       chunks.set(id, {
         id,
         kind: 'Maintain',
         nodeId: r.id,
-        nodeType: 'Forest',
+        nodeType: 'Road',
         position: r.position,
         slots: { soft: 1, hard: 2 },
         reserved: (reservations.get(id) ?? []).length,
         available: need,
+        reqItem: ((): any => {
+          switch ((r as any).type) {
+            case 'Wood': return 'Wood';
+            case 'Gravel': return 'Stone';
+            case 'Stone': return 'Stone';
+            default: return undefined;
+          }
+        })(),
+        reqQty: ((): number | undefined => {
+          switch ((r as any).type) {
+            case 'Wood': return 1;
+            case 'Gravel': return 1;
+            case 'Stone': return 1;
+            default: return undefined;
+          }
+        })(),
       });
     }
   } catch {}
@@ -166,10 +194,19 @@ export function JobChunkSystem(_world: GameWorld, _dt: number): void {
     if (store.__pfw_wear_accum >= interval) {
       store.__pfw_wear_accum = 0;
       for (const r of roads) {
-        // 간이 트래픽: 인접 시민 수를 기반으로 마모량 증가(최대 +50%)
+        // 타입별 마모율 계수: Dirt>Wood>Gravel>Stone
+        const typeMul = ((): number => {
+          switch ((r as any).type) {
+            case 'Dirt': return 1.3;
+            case 'Wood': return 1.15;
+            case 'Gravel': return 1.0;
+            case 'Stone': return 0.7;
+            default: return 1.0;
+          }
+        })();
         const nearC = ((globalThis as any).__pfw_cit_top5 ? Object.keys((globalThis as any).__pfw_cit_top5).length : 0);
         const trafficMul = 1 + Math.min(0.3, nearC * 0.008);
-        const step = 0.04 * trafficMul; // wear slower
+        const step = 0.04 * trafficMul * typeMul; // wear slower on high grade
         r.durability = Math.max(0.6, (r.durability ?? 1) - step);
       }
     }

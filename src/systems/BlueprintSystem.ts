@@ -58,6 +58,20 @@ export function addBlueprint(
       if (!options?.silent) try { window.dispatchEvent(new CustomEvent('pfw-ui-log', { detail: { category: 'Build', text: '겹침: 건물과 도로가 겹칠 수 없습니다' } })); } catch {}
       return undefined;
     }
+    // 도로 경사 제한: 연구 허용 각도 초과면 금지
+    try {
+      const allow = (require('./ResearchSystem') as any).getRoadSlopeAllowance?.();
+      const deg = ((): number => {
+        const h1 = getHeightAt(position[0], position[2]);
+        const h2 = getHeightAt(position[0] + 2, position[2] + 2);
+        const dh = (h2 - h1) * 1.2; const dx = Math.hypot(2, 2);
+        return Math.atan2(Math.abs(dh), Math.max(1e-3, dx)) * 180 / Math.PI;
+      })();
+      if (typeof allow === 'number' && deg > allow + 8) {
+        if (!options?.silent) try { window.dispatchEvent(new CustomEvent('pfw-ui-log', { detail: { category: 'Build', text: '경사 제한으로 도로를 놓을 수 없습니다' } })); } catch {}
+        return undefined;
+      }
+    } catch {}
   } else if (type === 'Building') {
     // 건물은 반드시 성역 내부
     if (!isInsideAnySanctumXZ(position)) {

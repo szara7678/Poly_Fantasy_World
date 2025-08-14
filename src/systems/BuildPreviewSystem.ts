@@ -47,8 +47,15 @@ export function createBuildPreviewSystem(scene: SceneRoot): (w: unknown, dt: num
     new THREE.BoxGeometry(2, 0.2, 2),
     new THREE.MeshBasicMaterial({ color: 0x00ff88, transparent: true, opacity: 0.6 })
   );
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(1.2, 1.4, 24),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.75 })
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.visible = false;
   previewMesh.visible = false;
   scene.scene.add(previewMesh);
+  scene.scene.add(ring);
 
   // No placed tracking needed in prototype; blueprint render handles visuals
 
@@ -62,6 +69,7 @@ export function createBuildPreviewSystem(scene: SceneRoot): (w: unknown, dt: num
     if (!res) {
       state.hoverPos = null;
       previewMesh.visible = false;
+      ring.visible = false;
       return;
     }
     let pos: [number, number, number] = [hit.x, 0, hit.z];
@@ -69,6 +77,7 @@ export function createBuildPreviewSystem(scene: SceneRoot): (w: unknown, dt: num
     if (state.mode === 'None') {
       state.isValid = false;
       previewMesh.visible = false;
+      ring.visible = false;
       return;
     }
     const type = state.mode as BuildType;
@@ -79,6 +88,10 @@ export function createBuildPreviewSystem(scene: SceneRoot): (w: unknown, dt: num
     (previewMesh.material as THREE.MeshBasicMaterial).color.set(state.isValid ? 0x00ff88 : 0xff5555);
     previewMesh.visible = true;
     previewMesh.position.set(pos[0], 0.1, pos[2]);
+    ring.visible = true;
+    ring.position.set(pos[0], 0.02, pos[2]);
+    const t = performance.now() / 1000;
+    (ring.material as THREE.MeshBasicMaterial).opacity = 0.5 + 0.25 * Math.sin(t * 4);
     state.hoverPos = pos;
   }
 
